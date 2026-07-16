@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+scripts/__pycache__/
+temp/frames/
+logs/*.json
+build/
+dist/
+outputs/*
+!outputs/.gitkeep
+
+# Local input libraries and one-off downloads. These are operational data,
+# not reproducible project source.
+media/
+playboy temp/

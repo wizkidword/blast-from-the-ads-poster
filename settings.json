@@ -1,0 +1,18 @@
+{
+  "openai_model": "gpt-5.4-nano",
+  "allow_generic_fallback_captions": false,
+  "default_providers": [
+    "manual_export"
+  ],
+  "logs_retention_days": 90,
+  "posting_pack_retention_days": 30,
+  "orphan_output_retention_days": 14,
+  "stale_draft_days": 30,
+  "preferred_platforms": [
+    "manual_export",
+    "instagram",
+    "facebook"
+  ],
+  "captions_dir": "H:\\Postiz\\Captions",
+  "processed_dir": "H:\\Postiz\\Processed"
+}
