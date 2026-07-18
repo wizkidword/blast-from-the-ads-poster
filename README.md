@@ -16,7 +16,7 @@ Local Windows version of the social media batch processor.
 - Stores post manifests, ready-to-publish media, and publish-state scaffolding for v2
 - Includes a desktop review queue for editing copy and marking posts draft or ready
 - Shows recent run details, failures, AI source status, and recovery actions in the desktop app
-- Creates posting-pack folders for manual export
+- Creates complete, integrity-checked posting-pack folders for manual export
 - Provides conservative cleanup tools for temp frames, old logs, old posting packs, and orphan output folders
 - Prevents processing, cleanup, and requeue actions from changing the same workspace at the same time
 - Writes structured v3 run ledgers with app version, command context, summary counts, and records
@@ -127,7 +127,9 @@ It does not touch `inbox/` or `!processed/`.
 
 ## Platform-Aware Posting Packs
 
-Posting packs now include a `platforms/` folder with validation notes and caption variants. The current profiles are:
+Posting packs now build in a private temporary sibling folder. The app copies every preflighted source, checks its hash and size, writes `pack-integrity.json`, verifies the complete pack, and only then replaces an existing pack. A failed export leaves the previous valid pack untouched. The integrity manifest records ordered upload filenames, byte sizes, SHA-256 values, source-manifest/post ID provenance, and platform-profile versions.
+
+Packs also include a `platforms/` folder with validation notes and caption variants. The current profiles are:
 
 - `manual_export`
 - `instagram`
