@@ -151,9 +151,10 @@ def _validate_run_metadata(run: dict[str, Any]) -> None:
 
 
 def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
-    processed = sum(1 for record in records if record.get("status") == "processed")
+    processed = sum(1 for record in records if record.get("status") in {"processed", "committed_with_archival_warning"})
     failed = sum(1 for record in records if record.get("status") == "failed")
     dry_run = sum(1 for record in records if record.get("status") == "dry_run")
+    archival_warnings = sum(1 for record in records if record.get("status") == "committed_with_archival_warning")
     media = sum(_media_count(record) for record in records)
     sources = sorted({str(record.get("analysis_source")) for record in records if record.get("analysis_source")})
     return {
@@ -161,6 +162,7 @@ def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
         "processed": processed,
         "failed": failed,
         "dry_run": dry_run,
+        "committed_with_archival_warning": archival_warnings,
         "media": media,
         "analysis_sources": sources,
     }

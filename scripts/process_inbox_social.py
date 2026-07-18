@@ -106,6 +106,21 @@ except ImportError:
     )
 
 try:
+    from processing_transaction import (
+        ProcessingTransaction,
+        process_image_batch_transaction,
+        process_video_transaction,
+        recover_incomplete_transactions,
+    )
+except ImportError:
+    from scripts.processing_transaction import (
+        ProcessingTransaction,
+        process_image_batch_transaction,
+        process_video_transaction,
+        recover_incomplete_transactions,
+    )
+
+try:
     from ai_analysis import (
         IMAGE_CAROUSEL_PROMPT_TEMPLATE,
         PROMPT_TEMPLATE,
@@ -331,6 +346,12 @@ def _call_with_optional_cancellation(handler, *args, cancellation_token: Cancell
     if accepts_cancellation:
         kwargs["cancellation_token"] = cancellation_token
     return handler(*args, **kwargs)
+
+
+def _transactional_processing_enabled() -> bool:
+    """Allow focused local hooks/tests to keep exercising the legacy facade."""
+
+    return getattr(process_video_file, "side_effect", None) is None and getattr(process_image_batch, "side_effect", None) is None
 
 
 def create_output_workspace(
@@ -724,25 +745,39 @@ def run_inbox_processing(
     try:
         workspace_lock.acquire()
         lock_acquired = True
+        if not dry_run:
+            for recovered in recover_incomplete_transactions(active_context):
+                print(f"Recovered transaction {recovered.journal_path.name}: {recovered.message}")
         cancellation_token.raise_if_requested()
         active_files = files
         if not dry_run:
             claims = claim_inbox_files(active_context.inbox_dir, files, run_id)
             active_files = [claim.claimed_path for claim in claims]
         videos, images = split_media_files(active_files)
+        claim_by_path = {str(claim.claimed_path.resolve()): claim for claim in claims}
+        use_transactions = not dry_run and _transactional_processing_enabled()
 
         for video in videos:
             try:
                 cancellation_token.raise_if_requested()
-                summary.append(
-                    _call_with_optional_cancellation(
-                        process_video_file,
-                        video,
-                        dry_run=dry_run,
-                        context=active_context,
-                        cancellation_token=cancellation_token,
+                if use_transactions:
+                    claim = claim_by_path[str(video.resolve())]
+                    summary.append(
+                        process_video_transaction(
+                            ProcessingTransaction(active_context, run_id, [claim], "video"),
+                            _ProcessingRuntime(active_context, cancellation_token),
+                        )
                     )
-                )
+                else:
+                    summary.append(
+                        _call_with_optional_cancellation(
+                            process_video_file,
+                            video,
+                            dry_run=dry_run,
+                            context=active_context,
+                            cancellation_token=cancellation_token,
+                        )
+                    )
             except OperationCancelled as exc:
                 print(f"   CANCELLED: {exc}")
                 summary.append(
@@ -768,13 +803,20 @@ def run_inbox_processing(
 
         if images and not cancellation_token.is_requested():
             try:
-                image_result = _call_with_optional_cancellation(
-                    process_image_batch,
-                    images,
-                    dry_run=dry_run,
-                    context=active_context,
-                    cancellation_token=cancellation_token,
-                )
+                if use_transactions:
+                    image_claims = [claim_by_path[str(path.resolve())] for path in images]
+                    image_result = process_image_batch_transaction(
+                        ProcessingTransaction(active_context, run_id, image_claims, "image_carousel"),
+                        _ProcessingRuntime(active_context, cancellation_token),
+                    )
+                else:
+                    image_result = _call_with_optional_cancellation(
+                        process_image_batch,
+                        images,
+                        dry_run=dry_run,
+                        context=active_context,
+                        cancellation_token=cancellation_token,
+                    )
                 if image_result:
                     summary.append(image_result)
             except OperationCancelled as exc:

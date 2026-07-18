@@ -96,6 +96,7 @@ def summarize_inbox_run(log_path: Path) -> RunSummary:
     processed_count = 0
     failed_count = 0
     dry_run_count = 0
+    archival_warning_count = 0
     media_count = 0
     sources: set[str] = set()
     errors: list[str] = []
@@ -107,8 +108,10 @@ def summarize_inbox_run(log_path: Path) -> RunSummary:
             sources.add(analysis_source)
 
         media_count += _media_count(record)
-        if status == "processed":
+        if status in {"processed", "committed_with_archival_warning"}:
             processed_count += 1
+        if status == "committed_with_archival_warning":
+            archival_warning_count += 1
         elif status == "failed":
             failed_count += 1
         elif status == "dry_run":
@@ -118,12 +121,15 @@ def summarize_inbox_run(log_path: Path) -> RunSummary:
             error_message = _record_error_message(record)
             if error_message and error_message not in errors:
                 errors.append(error_message)
+        for warning in record.get("warnings", []) if isinstance(record.get("warnings"), list) else []:
+            if isinstance(warning, str) and warning and warning not in errors:
+                errors.append(warning)
 
     if failed_count:
         status = "failed"
     elif dry_run_count and dry_run_count == len(records):
         status = "dry_run"
-    elif errors:
+    elif errors or archival_warning_count:
         status = "warning"
     else:
         status = "processed"

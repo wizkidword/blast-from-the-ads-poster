@@ -40,6 +40,7 @@ class PackagingTests(unittest.TestCase):
             "media_processing",
             "platform_profiles",
             "processing_orchestrator",
+            "processing_transaction",
             "recovery_queue",
             "review_queue",
             "run_ledger",

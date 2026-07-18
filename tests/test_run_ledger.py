@@ -59,6 +59,27 @@ class RunLedgerTests(unittest.TestCase):
             self.assertEqual(payload["run"]["started_at"], "2026-07-18T12:00:00Z")
             self.assertEqual(payload["run"]["ended_at"], "2026-07-18T12:01:00Z")
 
+    def test_summary_distinguishes_committed_archival_warning_from_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = write_run_ledger(
+                Path(temp_dir),
+                records=[
+                    {
+                        "type": "video",
+                        "file": "clip.mp4",
+                        "status": "committed_with_archival_warning",
+                        "transaction_status": "committed",
+                    }
+                ],
+                command="inbox",
+            )
+
+            payload = normalize_run_log(path)
+
+            self.assertEqual(payload["summary"]["processed"], 1)
+            self.assertEqual(payload["summary"]["failed"], 0)
+            self.assertEqual(payload["summary"]["committed_with_archival_warning"], 1)
+
     def test_generated_run_ids_are_collision_resistant(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             logs_dir = Path(temp_dir)

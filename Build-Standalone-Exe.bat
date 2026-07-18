@@ -47,6 +47,7 @@ echo Building standalone executable...
 --hidden-import "platform_profiles" ^
 --hidden-import "process_inbox_social" ^
 --hidden-import "processing_orchestrator" ^
+--hidden-import "processing_transaction" ^
 --hidden-import "publishing" ^
   --hidden-import "requeue" ^
   --hidden-import "recovery_queue" ^
