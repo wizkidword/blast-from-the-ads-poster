@@ -20,6 +20,11 @@ try:
 except ImportError:
     from scripts.safe_paths import resolve_existing_under, resolve_output_under
 
+try:
+    from atomic_io import atomic_write_text
+except ImportError:
+    from scripts.atomic_io import atomic_write_text
+
 
 def process_video_file(file_path: Path, api, dry_run: bool = False) -> Dict:
     print(f"Processing video: {file_path.name}")
@@ -71,9 +76,9 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
         post_id, output_dir = api.create_output_workspace("video", [file_path])
         caption_path = resolve_output_under(api.OUTPUTS_DIR, output_dir / "caption.txt")
         caption_path = resolve_output_under(api.OUTPUTS_DIR, caption_path)
-        caption_path.write_text(caption_text, encoding="utf-8")
+        atomic_write_text(caption_path, caption_text)
         legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, legacy_caption_path)
-        legacy_caption_path.write_text(caption_text, encoding="utf-8")
+        atomic_write_text(legacy_caption_path, caption_text)
         processed_media_path = api.handle_video_conversion_and_move(file_path, api.instagram_video_destination(file_path))
         if processed_media_path is None:
             _unlink_if_exists(api.OUTPUTS_DIR, caption_path)
@@ -216,9 +221,9 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
             )
 
             caption_path = resolve_output_under(api.OUTPUTS_DIR, caption_path)
-            caption_path.write_text(caption_text, encoding="utf-8")
+            atomic_write_text(caption_path, caption_text)
             legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, legacy_caption_path)
-            legacy_caption_path.write_text(caption_text, encoding="utf-8")
+            atomic_write_text(legacy_caption_path, caption_text)
             manifest_path = api.write_post_manifest(
                 post_id=post_id,
                 output_dir=output_dir,

@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+try:
+    from atomic_io import atomic_write_json, load_json, require_json_object, require_known_schema_version
+except ImportError:
+    from scripts.atomic_io import atomic_write_json, load_json, require_json_object, require_known_schema_version
+
+
+SETTINGS_SCHEMA_VERSION = 2
+_SUPPORTED_SETTINGS_SCHEMA_VERSIONS = {1, SETTINGS_SCHEMA_VERSION}
 
 
 @dataclass(frozen=True)
@@ -25,21 +33,22 @@ class AppSettings:
 def load_settings(settings_path: Path) -> AppSettings:
     if not settings_path.exists():
         return AppSettings()
-    try:
-        raw = json.loads(settings_path.read_text(encoding="utf-8"))
-    except Exception:
-        return AppSettings()
-    if not isinstance(raw, dict):
-        return AppSettings()
+    raw = require_json_object(load_json(settings_path, document_name="Settings"), document_name="Settings")
+    require_known_schema_version(
+        raw.get("schema_version", 1),
+        document_name="Settings",
+        supported_versions=_SUPPORTED_SETTINGS_SCHEMA_VERSIONS,
+    )
     return _settings_from_dict(raw)
 
 
 def save_settings(settings_path: Path, settings: AppSettings) -> None:
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(settings)
+    payload["schema_version"] = SETTINGS_SCHEMA_VERSION
     payload["default_providers"] = list(settings.default_providers)
     payload["preferred_platforms"] = list(settings.preferred_platforms)
-    settings_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    atomic_write_json(settings_path, payload)
 
 
 def _settings_from_dict(raw: dict[str, Any]) -> AppSettings:

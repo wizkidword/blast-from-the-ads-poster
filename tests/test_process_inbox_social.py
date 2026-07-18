@@ -222,6 +222,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
                 patch.object(processor, "load_env", return_value=None),
                 patch.object(processor, "get_openai_api_key", return_value="fake-key"),
                 patch.object(processor, "process_video_file", side_effect=RuntimeError("boom")),
+                patch.object(processor, "utc_now_iso", side_effect=["2026-07-18T12:00:00Z", "2026-07-18T12:01:00Z"]),
             ):
                 summary = processor.run_inbox_processing()
 
@@ -234,6 +235,8 @@ class ProcessInboxSocialTests(unittest.TestCase):
             self.assertEqual(len(logs), 1)
             logged = normalize_run_log(logs[0])
             self.assertEqual(logged["records"][0]["status"], "failed")
+            self.assertEqual(logged["run"]["started_at"], "2026-07-18T12:00:00Z")
+            self.assertEqual(logged["run"]["ended_at"], "2026-07-18T12:01:00Z")
 
     def test_run_inbox_processing_can_target_specific_retry_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

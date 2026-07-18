@@ -73,9 +73,9 @@ except ImportError:
     )
 
 try:
-    from run_ledger import write_run_ledger
+    from run_ledger import utc_now_iso, write_run_ledger
 except ImportError:
-    from scripts.run_ledger import write_run_ledger
+    from scripts.run_ledger import utc_now_iso, write_run_ledger
 
 try:
     from ai_analysis import (
@@ -423,6 +423,7 @@ def process_image_batch(image_files: List[Path], dry_run: bool = False) -> Optio
 
 
 def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, target_files: Optional[List[Path]] = None) -> List[Dict]:
+    started_at = utc_now_iso()
     load_env()
     ensure_dirs()
     if not get_openai_api_key():
@@ -471,47 +472,50 @@ def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, tar
     print(f"   Images: {len(images)} (one carousel caption)")
 
     summary: List[Dict] = []
-    for video in videos:
-        try:
-            summary.append(process_video_file(video, dry_run=dry_run))
-        except Exception as exc:
-            print(f"   ERROR: Failed to process {video.name}: {exc}")
-            summary.append(
-                {
-                    "type": "video",
-                    "file": video.name,
-                    "status": "failed",
-                    "error": "unhandled_exception",
-                    "message": str(exc),
-                }
-            )
+    try:
+        for video in videos:
+            try:
+                summary.append(process_video_file(video, dry_run=dry_run))
+            except Exception as exc:
+                print(f"   ERROR: Failed to process {video.name}: {exc}")
+                summary.append(
+                    {
+                        "type": "video",
+                        "file": video.name,
+                        "status": "failed",
+                        "error": "unhandled_exception",
+                        "message": str(exc),
+                    }
+                )
 
-    if images:
-        try:
-            image_result = process_image_batch(images, dry_run=dry_run)
-            if image_result:
-                summary.append(image_result)
-        except Exception as exc:
-            print(f"   ERROR: Failed to process image carousel batch: {exc}")
-            summary.append(
-                {
-                    "type": "image_carousel",
-                    "status": "failed",
-                    "error": "unhandled_exception",
-                    "message": str(exc),
-                    "file_count": len(images),
-                    "files": [path.name for path in images],
-                }
-            )
-
-    log_path = write_run_ledger(
-        LOGS_DIR,
-        records=summary,
-        command="inbox",
-        dry_run=dry_run,
-        targeted=target_files is not None,
-    )
-    print(f"Summary saved to {log_path}")
+        if images:
+            try:
+                image_result = process_image_batch(images, dry_run=dry_run)
+                if image_result:
+                    summary.append(image_result)
+            except Exception as exc:
+                print(f"   ERROR: Failed to process image carousel batch: {exc}")
+                summary.append(
+                    {
+                        "type": "image_carousel",
+                        "status": "failed",
+                        "error": "unhandled_exception",
+                        "message": str(exc),
+                        "file_count": len(images),
+                        "files": [path.name for path in images],
+                    }
+                )
+    finally:
+        log_path = write_run_ledger(
+            LOGS_DIR,
+            records=summary,
+            command="inbox",
+            dry_run=dry_run,
+            targeted=target_files is not None,
+            started_at=started_at,
+            ended_at=utc_now_iso(),
+        )
+        print(f"Summary saved to {log_path}")
     return summary
 
 

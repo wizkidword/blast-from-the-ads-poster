@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +13,11 @@ try:
     from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
 except ImportError:
     from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
+try:
+    from publishing import load_manifest
+except ImportError:
+    from scripts.publishing import load_manifest
 
 
 @dataclass(frozen=True)
@@ -60,11 +64,9 @@ def execute_requeue_plan(
 
         manifest_path = resolve_existing_under(folder, folder / "post_manifest.json")
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            manifest = load_manifest(manifest_path)
+        except (OSError, ValueError) as exc:
             raise ValueError(f"Could not validate workspace manifest: {exc}") from exc
-        if not isinstance(manifest, dict):
-            raise ValueError("Could not validate workspace manifest: expected a JSON object")
         _validate_manifest(manifest, base_dir, captions_dir)
 
         for source in media_files:

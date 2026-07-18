@@ -36,3 +36,13 @@ machine, update those two values in the Settings tab (or leave them blank for
 the local `captions/` and `!processed/` folders). The configured drive must be
 mounted and writable; strict runtime settings validation is scheduled for
 WP-03.
+
+## Local document safety
+
+Settings, run ledgers, and post manifests are written atomically: the app saves
+a complete sibling temporary file, then replaces the old file only after the
+new one is ready. Existing legacy documents are migrated in memory when read.
+If the app reports that one of these JSON documents is corrupt or uses an
+unknown schema version, stop before requeueing or editing it and restore or
+repair that specific file from a known-good copy. The app will not silently
+replace corrupted settings with defaults.
