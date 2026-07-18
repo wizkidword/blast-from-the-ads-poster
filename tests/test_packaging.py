@@ -37,6 +37,7 @@ class PackagingTests(unittest.TestCase):
             "export_packs",
             "manifest_service",
             "media_artifacts",
+            "media_probe",
             "media_processing",
             "platform_profiles",
             "processing_orchestrator",

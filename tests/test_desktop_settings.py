@@ -28,6 +28,12 @@ class DesktopSettingsTests(unittest.TestCase):
                 preferred_platforms=("manual_export", "facebook"),
                 captions_dir=r"H:\Postiz\Captions",
                 processed_dir=r"H:\Postiz\Processed",
+                max_media_file_bytes=123,
+                max_image_pixels=456,
+                max_image_dimension=789,
+                max_video_duration_seconds=90,
+                max_carousel_images=4,
+                max_analysis_payload_bytes=321,
             )
         )
 
@@ -38,6 +44,7 @@ class DesktopSettingsTests(unittest.TestCase):
         self.assertEqual(state.preferred_platforms, "manual_export, facebook")
         self.assertEqual(state.captions_dir, r"H:\Postiz\Captions")
         self.assertEqual(state.processed_dir, r"H:\Postiz\Processed")
+        self.assertEqual(state.max_video_duration_seconds, "90")
 
     def test_parse_settings_form_state_returns_validated_app_settings(self) -> None:
         settings = parse_settings_form_state(
@@ -52,6 +59,12 @@ class DesktopSettingsTests(unittest.TestCase):
                 preferred_platforms="manual_export, instagram, facebook",
                 captions_dir=r" H:\Postiz\Captions ",
                 processed_dir=r" H:\Postiz\Processed ",
+                max_media_file_bytes="123",
+                max_image_pixels="456",
+                max_image_dimension="789",
+                max_video_duration_seconds="90",
+                max_carousel_images="4",
+                max_analysis_payload_bytes="321",
             )
         )
 
@@ -61,6 +74,7 @@ class DesktopSettingsTests(unittest.TestCase):
         self.assertEqual(settings.preferred_platforms, ("manual_export", "instagram", "facebook"))
         self.assertEqual(settings.captions_dir, r"H:\Postiz\Captions")
         self.assertEqual(settings.processed_dir, r"H:\Postiz\Processed")
+        self.assertEqual(settings.max_analysis_payload_bytes, 321)
 
     def test_parse_settings_form_state_rejects_non_positive_retention_values(self) -> None:
         with self.assertRaisesRegex(ValueError, "logs_retention_days"):

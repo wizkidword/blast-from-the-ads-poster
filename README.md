@@ -23,6 +23,7 @@ Local Windows version of the social media batch processor.
 - Tracks failed files across runs in a recovery queue
 - Validates posting packs against platform profiles for manual export, Instagram, TikTok, and Facebook
 - Supports non-secret `settings.json` preferences while keeping `.env` for secrets only
+- Checks actual media contents, dimensions, durations, and resource limits before analysis or conversion
 - Uses a V4 tabbed desktop interface with Process, Review, Recovery, and Settings work areas
 
 ## Quick Start
@@ -143,11 +144,23 @@ Create or edit `settings.json` for non-secret preferences. Secrets still belong 
   "stale_draft_days": 30,
   "preferred_platforms": ["manual_export", "instagram", "facebook"],
   "captions_dir": "H:\\Postiz\\Captions",
-  "processed_dir": "H:\\Postiz\\Processed"
+  "processed_dir": "H:\\Postiz\\Processed",
+  "max_media_file_bytes": 1000000000,
+  "max_image_pixels": 40000000,
+  "max_image_dimension": 10000,
+  "max_video_duration_seconds": 900,
+  "max_carousel_images": 20,
+  "max_analysis_payload_bytes": 100000000
 }
 ```
 
 Leave `captions_dir` or `processed_dir` blank to use the local `captions/` and `!processed/` folders.
+
+## Media Preflight
+
+Before a live run starts AI analysis or FFmpeg conversion, the app checks the media file itself instead of trusting its name. Empty, malformed, oversized, incorrectly typed, overlong, and unsupported animated uploads are left in `inbox/` with a clear failure record. A real image or video whose filename has an unexpected extension can still be accepted when its contents are recognized.
+
+The conservative limits in the Settings tab (or the `settings.json` fields above) are non-secret and apply to each live run. Animated GIF and WebP files are deliberately rejected; export a still image first. Slideshow inputs are copied into a private, randomly named work folder before FFmpeg runs, so filenames cannot alter FFmpeg's concat instructions.
 
 ## Command Line
 
@@ -178,6 +191,7 @@ python scripts\workflow.py retry --run inbox-run-<run-id>.json --mode videos
 - Videos are processed individually and each gets its own caption.
 - Image carousel runs also create one vertical MP4 slideshow in `tiktok/media/` for computer-based TikTok posting.
 - `ffmpeg` must be available on Windows `PATH`.
+- `ffprobe` is also required; it verifies source and generated media before a successful run can commit output.
 - The app now expects a real OpenAI API key.
 - If OpenAI is unavailable, files stay in `inbox/` and the run logs the AI failure instead of generating weak generic captions.
 - Set `ALLOW_GENERIC_FALLBACK_CAPTIONS=true` in `.env` only if you explicitly want generic emergency captions.

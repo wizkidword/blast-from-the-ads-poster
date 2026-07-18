@@ -42,6 +42,7 @@ echo Building standalone executable...
 --hidden-import "export_packs" ^
 --hidden-import "manifest_service" ^
 --hidden-import "media_artifacts" ^
+--hidden-import "media_probe" ^
 --hidden-import "media_rules" ^
 --hidden-import "media_processing" ^
 --hidden-import "platform_profiles" ^

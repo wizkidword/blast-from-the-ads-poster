@@ -228,6 +228,12 @@ class SocialBatchApp:
         self.settings_preferred_platforms_var = StringVar()
         self.settings_captions_dir_var = StringVar()
         self.settings_processed_dir_var = StringVar()
+        self.settings_max_media_file_bytes_var = StringVar()
+        self.settings_max_image_pixels_var = StringVar()
+        self.settings_max_image_dimension_var = StringVar()
+        self.settings_max_video_duration_var = StringVar()
+        self.settings_max_carousel_images_var = StringVar()
+        self.settings_max_analysis_payload_var = StringVar()
         self.settings_allow_fallback_var = BooleanVar(value=False)
         self.status_card_vars: dict[str, StringVar] = {}
         self.running = False
@@ -501,6 +507,12 @@ class SocialBatchApp:
         add_entry("Preferred platforms", self.settings_preferred_platforms_var)
         add_entry("Captions folder", self.settings_captions_dir_var)
         add_entry("Processed folder", self.settings_processed_dir_var)
+        add_entry("Max media file bytes", self.settings_max_media_file_bytes_var, width=16)
+        add_entry("Max image pixels", self.settings_max_image_pixels_var, width=16)
+        add_entry("Max image dimension", self.settings_max_image_dimension_var, width=16)
+        add_entry("Max video seconds", self.settings_max_video_duration_var, width=16)
+        add_entry("Max carousel images", self.settings_max_carousel_images_var, width=16)
+        add_entry("Max analysis bytes", self.settings_max_analysis_payload_var, width=16)
         add_entry("Log retention days", self.settings_logs_retention_var, width=16)
         add_entry("Posting pack retention days", self.settings_pack_retention_var, width=16)
         add_entry("Orphan output retention days", self.settings_orphan_retention_var, width=16)
@@ -828,6 +840,12 @@ class SocialBatchApp:
         self.settings_preferred_platforms_var.set(state.preferred_platforms)
         self.settings_captions_dir_var.set(state.captions_dir)
         self.settings_processed_dir_var.set(state.processed_dir)
+        self.settings_max_media_file_bytes_var.set(state.max_media_file_bytes)
+        self.settings_max_image_pixels_var.set(state.max_image_pixels)
+        self.settings_max_image_dimension_var.set(state.max_image_dimension)
+        self.settings_max_video_duration_var.set(state.max_video_duration_seconds)
+        self.settings_max_carousel_images_var.set(state.max_carousel_images)
+        self.settings_max_analysis_payload_var.set(state.max_analysis_payload_bytes)
         load_env()
         self.settings_env_status_var.set("OpenAI API key: configured in .env" if get_openai_api_key() else "OpenAI API key: missing from .env")
         self.settings_status_var.set(f"Loaded settings from {self.context.settings_path}")
@@ -844,6 +862,12 @@ class SocialBatchApp:
             preferred_platforms=self.settings_preferred_platforms_var.get(),
             captions_dir=self.settings_captions_dir_var.get(),
             processed_dir=self.settings_processed_dir_var.get(),
+            max_media_file_bytes=self.settings_max_media_file_bytes_var.get(),
+            max_image_pixels=self.settings_max_image_pixels_var.get(),
+            max_image_dimension=self.settings_max_image_dimension_var.get(),
+            max_video_duration_seconds=self.settings_max_video_duration_var.get(),
+            max_carousel_images=self.settings_max_carousel_images_var.get(),
+            max_analysis_payload_bytes=self.settings_max_analysis_payload_var.get(),
         )
         try:
             settings = parse_settings_form_state(state)

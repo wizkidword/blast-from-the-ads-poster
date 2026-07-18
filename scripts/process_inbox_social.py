@@ -44,6 +44,7 @@ try:
         IMAGE_EXTENSIONS,
         SUPPORTED_EXTENSIONS,
         VIDEO_EXTENSIONS,
+        is_candidate_media_file,
         is_supported_media_file,
         is_video_file,
         split_media_files,
@@ -54,6 +55,7 @@ except ImportError:
         IMAGE_EXTENSIONS,
         SUPPORTED_EXTENSIONS,
         VIDEO_EXTENSIONS,
+        is_candidate_media_file,
         is_supported_media_file,
         is_video_file,
         split_media_files,
@@ -119,6 +121,11 @@ except ImportError:
         process_video_transaction,
         recover_incomplete_transactions,
     )
+
+try:
+    from media_probe import limits_from_settings, preflight_media_files
+except ImportError:
+    from scripts.media_probe import limits_from_settings, preflight_media_files
 
 try:
     from ai_analysis import (
@@ -295,7 +302,7 @@ def list_inbox_files(limit: Optional[int] = None, *, context: AppContext | None 
             safe_path = resolve_existing_under(active_context.inbox_dir, path)
         except UnsafePathError:
             continue
-        if is_supported_media_file(safe_path):
+        if is_candidate_media_file(safe_path):
             files.append(safe_path)
     if limit:
         files = files[:limit]
@@ -720,7 +727,7 @@ def run_inbox_processing(
                     "message": str(exc),
                 }
             ]
-        files = [path for path in files if is_supported_media_file(path)]
+        files = [path for path in files if is_candidate_media_file(path)]
         files = sorted(files)
         if limit:
             files = files[:limit]
@@ -753,9 +760,25 @@ def run_inbox_processing(
         if not dry_run:
             claims = claim_inbox_files(active_context.inbox_dir, files, run_id)
             active_files = [claim.claimed_path for claim in claims]
-        videos, images = split_media_files(active_files)
         claim_by_path = {str(claim.claimed_path.resolve()): claim for claim in claims}
         use_transactions = not dry_run and _transactional_processing_enabled()
+        if use_transactions:
+            preflight = preflight_media_files(active_files, limits_from_settings(active_context.settings))
+            for issue in preflight.rejected:
+                print(f"   ERROR: Media preflight rejected {issue.path.name}: {issue.message}")
+                summary.append(
+                    {
+                        "type": "media_preflight",
+                        "file": issue.path.name,
+                        "status": "failed",
+                        "error": "media_preflight_failed",
+                        "message": issue.message,
+                    }
+                )
+            videos = [item.path for item in preflight.accepted if item.actual_type == "video"]
+            images = [item.path for item in preflight.accepted if item.actual_type == "image"]
+        else:
+            videos, images = split_media_files(active_files)
 
         for video in videos:
             try:

@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.1.0 - 2026-07-18
+
+- Added actual-media preflight checks for file contents, image dimensions, video duration, stream metadata, and conservative resource limits.
+- Added configurable non-secret media limits to `settings.json` and the Settings tab.
+- Added isolated, generated FFmpeg staging names for carousel slides and extracted frames.
+- Added generated-output verification before a processing transaction can commit.
+- Added explicit timeout errors and tests for malformed files, extension mismatches, animated images, concurrent staging, and missing output.
+
 ## 4.0.0 - 2026-05-03
 
 - Upgraded the desktop app to a tabbed Process, Review, Recovery, and Settings layout.

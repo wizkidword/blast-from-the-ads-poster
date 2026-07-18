@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -287,6 +288,14 @@ class ProcessInboxSocialTests(unittest.TestCase):
                     "process_video_transaction",
                     return_value={"type": "video", "file": "transactional.mp4", "status": "processed"},
                 ) as transactional_process,
+                patch.object(
+                    processor,
+                    "preflight_media_files",
+                    side_effect=lambda paths, _limits: SimpleNamespace(
+                        accepted=(SimpleNamespace(path=paths[0], actual_type="video"),),
+                        rejected=(),
+                    ),
+                ),
             ):
                 summary = processor.run_inbox_processing()
 
@@ -295,6 +304,22 @@ class ProcessInboxSocialTests(unittest.TestCase):
             transaction = transactional_process.call_args.args[0]
             self.assertEqual(transaction.post_type, "video")
             self.assertTrue(source.exists(), "A test hook that does not commit must release its inbox claim")
+
+    def test_list_inbox_files_accepts_recognizable_media_with_an_unexpected_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            inbox_dir = root / "inbox"
+            inbox_dir.mkdir()
+            image = inbox_dir / "ad-upload.bin"
+            image.write_bytes(
+                b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+                b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+            )
+            context = processor.build_app_context(root)
+
+            files = processor.list_inbox_files(context=context)
+
+            self.assertEqual(files, [image.resolve()])
 
     def test_run_inbox_processing_refuses_target_outside_inbox_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

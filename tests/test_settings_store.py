@@ -40,6 +40,12 @@ class SettingsStoreTests(unittest.TestCase):
                 orphan_output_retention_days=5,
                 captions_dir=r"H:\Postiz\Captions",
                 processed_dir=r"H:\Postiz\Processed",
+                max_media_file_bytes=123_456,
+                max_image_pixels=789_012,
+                max_image_dimension=2048,
+                max_video_duration_seconds=45,
+                max_carousel_images=6,
+                max_analysis_payload_bytes=654_321,
             )
 
             save_settings(settings_path, settings)
@@ -52,6 +58,7 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(raw["schema_version"], SETTINGS_SCHEMA_VERSION)
             self.assertEqual(raw["captions_dir"], r"H:\Postiz\Captions")
             self.assertEqual(raw["processed_dir"], r"H:\Postiz\Processed")
+            self.assertEqual(raw["max_video_duration_seconds"], 45)
 
     def test_load_settings_ignores_legacy_gemini_model_names(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -87,6 +94,10 @@ class SettingsStoreTests(unittest.TestCase):
                 load_settings(settings_path)
 
             settings_path.write_text(json.dumps({"logs_retention_days": "90"}), encoding="utf-8")
+            with self.assertRaisesRegex(InvalidSchemaError, "positive integer"):
+                load_settings(settings_path)
+
+            settings_path.write_text(json.dumps({"max_carousel_images": 0}), encoding="utf-8")
             with self.assertRaisesRegex(InvalidSchemaError, "positive integer"):
                 load_settings(settings_path)
 

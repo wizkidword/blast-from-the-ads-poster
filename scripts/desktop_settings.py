@@ -20,6 +20,12 @@ class SettingsFormState:
     preferred_platforms: str
     captions_dir: str
     processed_dir: str
+    max_media_file_bytes: str = "1000000000"
+    max_image_pixels: str = "40000000"
+    max_image_dimension: str = "10000"
+    max_video_duration_seconds: str = "900"
+    max_carousel_images: str = "20"
+    max_analysis_payload_bytes: str = "100000000"
 
 
 def build_settings_form_state(settings: AppSettings) -> SettingsFormState:
@@ -34,6 +40,12 @@ def build_settings_form_state(settings: AppSettings) -> SettingsFormState:
         preferred_platforms=", ".join(settings.preferred_platforms),
         captions_dir=settings.captions_dir,
         processed_dir=settings.processed_dir,
+        max_media_file_bytes=str(settings.max_media_file_bytes),
+        max_image_pixels=str(settings.max_image_pixels),
+        max_image_dimension=str(settings.max_image_dimension),
+        max_video_duration_seconds=str(settings.max_video_duration_seconds),
+        max_carousel_images=str(settings.max_carousel_images),
+        max_analysis_payload_bytes=str(settings.max_analysis_payload_bytes),
     )
 
 
@@ -49,6 +61,12 @@ def parse_settings_form_state(state: SettingsFormState) -> AppSettings:
         preferred_platforms=_parse_csv_tuple(state.preferred_platforms, "preferred_platforms"),
         captions_dir=state.captions_dir.strip(),
         processed_dir=state.processed_dir.strip(),
+        max_media_file_bytes=_positive_int(state.max_media_file_bytes, "max_media_file_bytes"),
+        max_image_pixels=_positive_int(state.max_image_pixels, "max_image_pixels"),
+        max_image_dimension=_positive_int(state.max_image_dimension, "max_image_dimension"),
+        max_video_duration_seconds=_positive_int(state.max_video_duration_seconds, "max_video_duration_seconds"),
+        max_carousel_images=_positive_int(state.max_carousel_images, "max_carousel_images"),
+        max_analysis_payload_bytes=_positive_int(state.max_analysis_payload_bytes, "max_analysis_payload_bytes"),
     )
 
 
