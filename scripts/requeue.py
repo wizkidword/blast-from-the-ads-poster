@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +15,16 @@ try:
     from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
 except ImportError:
     from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
+try:
+    from publishing import load_manifest
+except ImportError:
+    from scripts.publishing import load_manifest
+
+try:
+    from run_ledger import normalize_run_log
+except ImportError:
+    from scripts.run_ledger import normalize_run_log
 
 
 @dataclass
@@ -88,8 +97,8 @@ def collect_requeue_plan(outputs_dir: Path, processed_dir: Path) -> RequeuePlan:
 def collect_failed_run_retry_plan(log_path: Path, inbox_dir: Path) -> FailedRunRetryPlan:
     try:
         safe_log_path = resolve_existing_under(log_path.parent, log_path)
-        records = json.loads(safe_log_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError, UnsafePathError) as exc:
+        records = normalize_run_log(safe_log_path)["records"]
+    except (OSError, ValueError, UnsafePathError) as exc:
         raise ValueError(f"Could not read failed-run ledger safely: {exc}") from exc
 
     retry_files: list[Path] = []
@@ -127,11 +136,9 @@ def requeue_output_workspace(
     captions_dir = resolve_existing_under(captions_candidate, captions_candidate) if captions_candidate.exists() else None
     manifest_path = resolve_existing_under(workspace_dir, workspace_dir / "post_manifest.json")
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        manifest = load_manifest(manifest_path)
+    except (OSError, ValueError) as exc:
         raise ValueError(f"Could not validate workspace manifest: {exc}") from exc
-    if not isinstance(manifest, dict):
-        raise ValueError("Could not validate workspace manifest: expected a JSON object")
     _validate_workspace_manifest(manifest, base_dir, captions_dir)
 
     moved_files: list[Path] = []
@@ -192,10 +199,7 @@ def _workspace_media_sources(workspace_dir: Path, processed_dir: Path, manifest:
 def _generated_media_names(output_folders: list[Path]) -> set[str]:
     names: set[str] = set()
     for folder in output_folders:
-        try:
-            manifest = json.loads((folder / "post_manifest.json").read_text(encoding="utf-8"))
-        except Exception:
-            continue
+        manifest = load_manifest(folder / "post_manifest.json")
         for item in manifest.get("media_files", []):
             if _is_generated_media_item(item) and item.get("filename"):
                 names.add(require_plain_filename(str(item["filename"])).lower())

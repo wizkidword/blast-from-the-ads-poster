@@ -12,7 +12,8 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from settings_store import AppSettings, load_settings, resolve_configured_dir, save_settings  # noqa: E402
+from atomic_io import CorruptJsonError, UnknownSchemaVersionError  # noqa: E402
+from settings_store import SETTINGS_SCHEMA_VERSION, AppSettings, load_settings, resolve_configured_dir, save_settings  # noqa: E402
 
 
 class SettingsStoreTests(unittest.TestCase):
@@ -48,6 +49,7 @@ class SettingsStoreTests(unittest.TestCase):
             raw = json.loads(settings_path.read_text(encoding="utf-8"))
             self.assertNotIn("GOOGLE_API_KEY", json.dumps(raw))
             self.assertNotIn("OPENAI_API_KEY", json.dumps(raw))
+            self.assertEqual(raw["schema_version"], SETTINGS_SCHEMA_VERSION)
             self.assertEqual(raw["captions_dir"], r"H:\Postiz\Captions")
             self.assertEqual(raw["processed_dir"], r"H:\Postiz\Processed")
 
@@ -59,6 +61,20 @@ class SettingsStoreTests(unittest.TestCase):
             settings = load_settings(settings_path)
 
             self.assertEqual(settings.openai_model, "gpt-5.4-nano")
+
+    def test_load_settings_migrates_legacy_and_rejects_damaged_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+            settings_path.write_text(json.dumps({"openai_model": "gpt-5.4"}), encoding="utf-8")
+            self.assertEqual(load_settings(settings_path).openai_model, "gpt-5.4")
+
+            settings_path.write_text('{"schema_version": 2', encoding="utf-8")
+            with self.assertRaises(CorruptJsonError):
+                load_settings(settings_path)
+
+            settings_path.write_text(json.dumps({"schema_version": 999}), encoding="utf-8")
+            with self.assertRaises(UnknownSchemaVersionError):
+                load_settings(settings_path)
 
     def test_resolve_configured_dir_supports_default_relative_and_absolute_paths(self) -> None:
         base_dir = Path(r"C:\Project")

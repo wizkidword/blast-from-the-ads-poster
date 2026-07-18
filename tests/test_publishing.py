@@ -12,7 +12,9 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+from atomic_io import CorruptJsonError, UnknownSchemaVersionError  # noqa: E402
 from publishing import (  # noqa: E402
+    MANIFEST_SCHEMA_VERSION,
     PublishStatus,
     build_caption_export,
     build_initial_publishing_state,
@@ -185,6 +187,25 @@ class PublishingTests(unittest.TestCase):
             self.assertIn("publishing", manifest)
             self.assertIn("manual_export", manifest["publishing"]["providers"])
             self.assertEqual(build_caption_export(manifest).count("Ready to post"), 0)
+
+    def test_load_manifest_migrates_legacy_and_rejects_damaged_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir) / "outputs" / "post-123"
+            workspace.mkdir(parents=True)
+            manifest_path = workspace / "post_manifest.json"
+            manifest_path.write_text(json.dumps({"schema_version": 1, "post_id": "post-123"}), encoding="utf-8")
+
+            manifest = load_manifest(manifest_path)
+            self.assertEqual(manifest["schema_version"], MANIFEST_SCHEMA_VERSION)
+            self.assertEqual(manifest["post_id"], "post-123")
+
+            manifest_path.write_text('{"schema_version": 2', encoding="utf-8")
+            with self.assertRaises(CorruptJsonError):
+                load_manifest(manifest_path)
+
+            manifest_path.write_text(json.dumps({"schema_version": 999}), encoding="utf-8")
+            with self.assertRaises(UnknownSchemaVersionError):
+                load_manifest(manifest_path)
 
     def test_record_provider_audit_appends_provider_history(self) -> None:
         from publishing import record_provider_audit

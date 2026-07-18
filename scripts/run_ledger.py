@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
-import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 try:
     from app_metadata import APP_VERSION
 except ImportError:
     from scripts.app_metadata import APP_VERSION
 
+try:
+    from atomic_io import InvalidSchemaError, atomic_write_json, load_json, require_json_object, require_known_schema_version
+except ImportError:
+    from scripts.atomic_io import InvalidSchemaError, atomic_write_json, load_json, require_json_object, require_known_schema_version
 
-RUN_SCHEMA_VERSION = 2
+try:
+    from safe_paths import require_plain_filename
+except ImportError:
+    from scripts.safe_paths import require_plain_filename
+
+
+RUN_SCHEMA_VERSION = 3
+_SUPPORTED_RUN_SCHEMA_VERSIONS = {2, RUN_SCHEMA_VERSION}
 
 
 def write_run_ledger(
@@ -26,7 +37,7 @@ def write_run_ledger(
     ended_at: str | None = None,
 ) -> Path:
     logs_dir.mkdir(parents=True, exist_ok=True)
-    run_id = run_id or str(int(time.time()))
+    run_id = require_plain_filename(run_id or uuid4().hex)
     payload = build_run_ledger(
         records=records,
         command=command,
@@ -37,7 +48,7 @@ def write_run_ledger(
         ended_at=ended_at,
     )
     path = logs_dir / f"inbox-run-{run_id}.json"
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    atomic_write_json(path, payload)
     return path
 
 
@@ -56,8 +67,8 @@ def build_run_ledger(
             "run_id": run_id,
             "app_version": APP_VERSION,
             "command": command,
-            "started_at": started_at or _unix_iso(),
-            "ended_at": ended_at or _unix_iso(),
+            "started_at": started_at,
+            "ended_at": ended_at,
             "dry_run": dry_run,
             "targeted": targeted,
         },
@@ -67,35 +78,76 @@ def build_run_ledger(
 
 
 def normalize_run_log(log_path: Path) -> dict[str, Any]:
-    raw = json.loads(log_path.read_text(encoding="utf-8"))
-    if isinstance(raw, dict) and isinstance(raw.get("records"), list):
-        payload = dict(raw)
-        payload.setdefault("schema_version", RUN_SCHEMA_VERSION)
-        payload.setdefault("run", {})
-        payload["run"].setdefault("run_id", _run_id_from_path(log_path))
-        payload["run"].setdefault("app_version", "unknown")
-        payload["run"].setdefault("command", "inbox")
-        payload["run"].setdefault("dry_run", False)
-        payload["run"].setdefault("targeted", False)
-        payload["summary"] = summarize_records([record for record in payload["records"] if isinstance(record, dict)])
-        return payload
+    raw = load_json(log_path, document_name="Run ledger")
     if isinstance(raw, list):
-        records = [record for record in raw if isinstance(record, dict)]
-        return {
-            "schema_version": 1,
-            "run": {
-                "run_id": _run_id_from_path(log_path),
-                "app_version": "legacy",
-                "command": "inbox",
-                "started_at": None,
-                "ended_at": None,
-                "dry_run": False,
-                "targeted": False,
-            },
-            "summary": summarize_records(records),
-            "records": records,
-        }
-    raise ValueError("run log must be a structured object or legacy JSON list")
+        return _migrate_legacy_array_log(raw, log_path)
+
+    payload = require_json_object(raw, document_name="Run ledger")
+    raw_version = payload.get("schema_version", 2)
+    require_known_schema_version(
+        raw_version,
+        document_name="Run ledger",
+        supported_versions=_SUPPORTED_RUN_SCHEMA_VERSIONS,
+    )
+    return _normalize_structured_log(payload, log_path)
+
+
+def _migrate_legacy_array_log(records: list[Any], log_path: Path) -> dict[str, Any]:
+    if not all(isinstance(record, dict) for record in records):
+        raise InvalidSchemaError("Legacy run ledger records must all be JSON objects")
+    return _build_normalized_payload(
+        records=[dict(record) for record in records],
+        run={
+            "run_id": _run_id_from_path(log_path),
+            "app_version": "legacy",
+            "command": "inbox",
+            "started_at": None,
+            "ended_at": None,
+            "dry_run": False,
+            "targeted": False,
+        },
+    )
+
+
+def _normalize_structured_log(payload: dict[str, Any], log_path: Path) -> dict[str, Any]:
+    records = payload.get("records")
+    if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
+        raise InvalidSchemaError("Run ledger records must be a list of JSON objects")
+
+    raw_run = payload.get("run", {})
+    if not isinstance(raw_run, dict):
+        raise InvalidSchemaError("Run ledger run metadata must be a JSON object")
+    run = dict(raw_run)
+    run.setdefault("run_id", _run_id_from_path(log_path))
+    run.setdefault("app_version", "unknown")
+    run.setdefault("command", "inbox")
+    run.setdefault("started_at", None)
+    run.setdefault("ended_at", None)
+    run.setdefault("dry_run", False)
+    run.setdefault("targeted", False)
+    _validate_run_metadata(run)
+    return _build_normalized_payload(records=[dict(record) for record in records], run=run)
+
+
+def _build_normalized_payload(records: list[dict[str, Any]], run: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": RUN_SCHEMA_VERSION,
+        "run": run,
+        "summary": summarize_records(records),
+        "records": records,
+    }
+
+
+def _validate_run_metadata(run: dict[str, Any]) -> None:
+    for key in ("run_id", "app_version", "command"):
+        if not isinstance(run.get(key), str) or not run[key].strip():
+            raise InvalidSchemaError(f"Run ledger run.{key} must be a non-empty string")
+    for key in ("started_at", "ended_at"):
+        if run.get(key) is not None and not isinstance(run[key], str):
+            raise InvalidSchemaError(f"Run ledger run.{key} must be a string or null")
+    for key in ("dry_run", "targeted"):
+        if not isinstance(run.get(key), bool):
+            raise InvalidSchemaError(f"Run ledger run.{key} must be a boolean")
 
 
 def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -129,5 +181,5 @@ def _run_id_from_path(log_path: Path) -> str:
     return stem.removeprefix("inbox-run-")
 
 
-def _unix_iso() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

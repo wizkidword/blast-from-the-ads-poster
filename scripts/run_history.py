@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +17,7 @@ except ImportError:
     from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
 
 
-RUN_LOG_PATTERN = re.compile(r"^inbox-run-(\d+)\.json$")
+RUN_LOG_PATTERN = re.compile(r"^inbox-run-(.+)\.json$")
 
 
 @dataclass(frozen=True)
@@ -260,14 +259,12 @@ def _run_id_from_path(log_path: Path) -> str:
     return match.group(1) if match else log_path.stem
 
 
-def _sort_key(log_path: Path) -> tuple[int, float]:
-    match = RUN_LOG_PATTERN.match(log_path.name)
-    numeric_id = int(match.group(1)) if match else -1
+def _sort_key(log_path: Path) -> tuple[float, str]:
     try:
         modified_at = log_path.stat().st_mtime
     except OSError:
         modified_at = 0.0
-    return numeric_id, modified_at
+    return modified_at, log_path.name
 
 
 def _media_count(record: dict[str, Any]) -> int:

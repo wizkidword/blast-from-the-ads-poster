@@ -35,15 +35,18 @@ class RecoveryQueue:
     items: tuple[RecoveryItem, ...]
     available_count: int
     stale_count: int
+    errors: tuple[str, ...] = ()
 
 
 def build_recovery_queue(logs_dir: Path, inbox_dir: Path) -> RecoveryQueue:
     items: list[RecoveryItem] = []
+    errors: list[str] = []
     seen: set[tuple[str, str]] = set()
     for log_path in _log_paths(logs_dir):
         try:
             payload = normalize_run_log(log_path)
-        except Exception:
+        except Exception as exc:
+            errors.append(f"Could not read {log_path.name}: {exc}")
             continue
         run_id = str(payload.get("run", {}).get("run_id") or log_path.stem)
         for record in payload.get("records", []):
@@ -75,7 +78,12 @@ def build_recovery_queue(logs_dir: Path, inbox_dir: Path) -> RecoveryQueue:
                     )
                 )
     available = sum(1 for item in items if item.available)
-    return RecoveryQueue(items=tuple(items), available_count=available, stale_count=len(items) - available)
+    return RecoveryQueue(
+        items=tuple(items),
+        available_count=available,
+        stale_count=len(items) - available,
+        errors=tuple(errors),
+    )
 
 
 def plan_retry_targets(queue: RecoveryQueue, mode: str = "all") -> list[Path]:
@@ -94,7 +102,10 @@ def plan_retry_targets(queue: RecoveryQueue, mode: str = "all") -> list[Path]:
 
 def format_recovery_queue(queue: RecoveryQueue) -> str:
     if not queue.items:
-        return "Recovery Queue: no failed files found."
+        lines = ["Recovery Queue: no failed files found."]
+        if queue.errors:
+            lines.extend(f"- {error}" for error in queue.errors)
+        return "\n".join(lines)
     lines = [
         f"Recovery Queue: {queue.available_count} available, {queue.stale_count} stale/missing",
     ]
@@ -103,6 +114,7 @@ def format_recovery_queue(queue: RecoveryQueue) -> str:
         lines.append(f"- [{state}] {item.filename} | run {item.run_id} | {item.error}")
     if len(queue.items) > 20:
         lines.append(f"- ...and {len(queue.items) - 20} more")
+    lines.extend(f"- {error}" for error in queue.errors)
     return "\n".join(lines)
 
 

@@ -12,7 +12,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from recovery_queue import build_recovery_queue, plan_retry_targets  # noqa: E402
+from recovery_queue import build_recovery_queue, format_recovery_queue, plan_retry_targets  # noqa: E402
 
 
 class RecoveryQueueTests(unittest.TestCase):
@@ -66,6 +66,21 @@ class RecoveryQueueTests(unittest.TestCase):
             self.assertEqual([path.name for path in plan_retry_targets(queue, mode="videos")], ["clip.mp4"])
             self.assertEqual([path.name for path in plan_retry_targets(queue, mode="images")], ["ad.jpg"])
             self.assertEqual([path.name for path in plan_retry_targets(queue, mode="all")], ["clip.mp4", "ad.jpg"])
+
+    def test_corrupt_run_log_is_visible_and_cannot_supply_retry_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            inbox = root / "inbox"
+            logs = root / "logs"
+            inbox.mkdir()
+            logs.mkdir()
+            (logs / "inbox-run-damaged.json").write_text('{"schema_version": 3', encoding="utf-8")
+
+            queue = build_recovery_queue(logs, inbox)
+
+            self.assertEqual(queue.items, ())
+            self.assertEqual(len(queue.errors), 1)
+            self.assertIn("corrupt or truncated", format_recovery_queue(queue))
 
 
 if __name__ == "__main__":

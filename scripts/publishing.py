@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import mimetypes
-import json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
@@ -15,6 +14,29 @@ try:
     from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
 except ImportError:
     from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
+try:
+    from atomic_io import (
+        InvalidSchemaError,
+        atomic_write_json,
+        atomic_write_text,
+        load_json,
+        require_json_object,
+        require_known_schema_version,
+    )
+except ImportError:
+    from scripts.atomic_io import (
+        InvalidSchemaError,
+        atomic_write_json,
+        atomic_write_text,
+        load_json,
+        require_json_object,
+        require_known_schema_version,
+    )
+
+
+MANIFEST_SCHEMA_VERSION = 2
+_SUPPORTED_MANIFEST_SCHEMA_VERSIONS = {1, MANIFEST_SCHEMA_VERSION}
 
 
 def utc_now_iso() -> str:
@@ -189,21 +211,33 @@ def list_output_manifests(outputs_dir: Path) -> List[Path]:
 
 
 def ensure_manifest_defaults(manifest: Dict[str, Any]) -> Dict[str, Any]:
-    manifest.setdefault("schema_version", 1)
+    if not isinstance(manifest, dict):
+        raise InvalidSchemaError("Post manifest must contain a JSON object")
+    manifest = dict(manifest)
+    require_known_schema_version(
+        manifest.get("schema_version", 1),
+        document_name="Post manifest",
+        supported_versions=_SUPPORTED_MANIFEST_SCHEMA_VERSIONS,
+    )
+    manifest["schema_version"] = MANIFEST_SCHEMA_VERSION
     manifest.setdefault("post_id", "unknown-post")
     manifest.setdefault("post_type", "video")
     manifest.setdefault("created_at", utc_now_iso())
     manifest.setdefault("updated_at", utc_now_iso())
     manifest.setdefault("source_files", [])
     manifest.setdefault("media_files", [])
-    manifest.setdefault("paths", {})
-    manifest.setdefault("analysis", {})
-    manifest.setdefault("content", {})
+    if not isinstance(manifest["source_files"], list) or not isinstance(manifest["media_files"], list):
+        raise InvalidSchemaError("Post manifest source_files and media_files must be lists")
+    manifest["paths"] = _mapping_section(manifest, "paths")
+    manifest["analysis"] = _mapping_section(manifest, "analysis")
+    manifest["content"] = _mapping_section(manifest, "content")
 
     analysis = manifest["analysis"]
     analysis.setdefault("source", "unknown")
     analysis.setdefault("error", None)
     analysis.setdefault("meta", {})
+    if not isinstance(analysis["meta"], dict):
+        raise InvalidSchemaError("Post manifest analysis.meta must be a JSON object")
 
     content = manifest["content"]
     content.setdefault("title", "")
@@ -212,16 +246,25 @@ def ensure_manifest_defaults(manifest: Dict[str, Any]) -> Dict[str, Any]:
     content.setdefault("caption_text", "")
     content.setdefault("details", [])
 
-    publishing = manifest.setdefault("publishing", {})
+    publishing = _mapping_section(manifest, "publishing")
+    manifest["publishing"] = publishing
     publishing.setdefault("workflow_status", PublishStatus.DRAFT.value)
     publishing.setdefault("selected_providers", [])
     publishing.setdefault("platform_overrides", {})
     publishing.setdefault("history", [])
+    if not isinstance(publishing["selected_providers"], list):
+        raise InvalidSchemaError("Post manifest publishing.selected_providers must be a list")
+    if not isinstance(publishing["platform_overrides"], dict) or not isinstance(publishing["history"], list):
+        raise InvalidSchemaError("Post manifest publishing fields have an invalid shape")
 
     provider_states = publishing.setdefault("providers", {})
+    if not isinstance(provider_states, dict):
+        raise InvalidSchemaError("Post manifest publishing.providers must be a JSON object")
     defaults = registry.initial_provider_states()
     for provider_name, state in defaults.items():
         provider_states.setdefault(provider_name, state)
+        if not isinstance(provider_states[provider_name], dict):
+            raise InvalidSchemaError(f"Post manifest provider state {provider_name!r} must be a JSON object")
         provider_states[provider_name].setdefault("display_name", state["display_name"])
         provider_states[provider_name].setdefault("status", state["status"])
         provider_states[provider_name].setdefault("can_direct_publish", state["can_direct_publish"])
@@ -239,7 +282,7 @@ def ensure_manifest_defaults(manifest: Dict[str, Any]) -> Dict[str, Any]:
 
 def load_manifest(manifest_path: Path) -> Dict[str, Any]:
     manifest_path, _, _ = _manifest_roots(manifest_path, require_existing=True)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = require_json_object(load_json(manifest_path, document_name="Post manifest"), document_name="Post manifest")
     return ensure_manifest_defaults(manifest)
 
 
@@ -275,15 +318,15 @@ def save_manifest(manifest_path: Path, manifest: Dict[str, Any], *, captions_roo
     # Validate all manifest-derived destinations before changing any persisted
     # state.  An unsafe path therefore leaves the manifest and captions intact.
     manifest_path = resolve_output_under(outputs_root, manifest_path)
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    atomic_write_json(manifest_path, manifest)
     if resolved_caption_path:
         resolved_caption_path.parent.mkdir(parents=True, exist_ok=True)
         resolved_caption_path = resolve_output_under(project_root, resolved_caption_path)
-        resolved_caption_path.write_text(manifest["content"]["caption_text"], encoding="utf-8")
+        atomic_write_text(resolved_caption_path, manifest["content"]["caption_text"])
     if resolved_legacy_path:
         resolved_legacy_path.parent.mkdir(parents=True, exist_ok=True)
         resolved_legacy_path = _resolve_legacy_caption_path(project_root, captions_root, str(legacy_caption_path))
-        resolved_legacy_path.write_text(manifest["content"]["caption_text"], encoding="utf-8")
+        atomic_write_text(resolved_legacy_path, manifest["content"]["caption_text"])
 
 
 def update_manifest_review(
@@ -362,6 +405,13 @@ def _manifest_roots(manifest_path: Path, *, require_existing: bool) -> tuple[Pat
         else resolve_output_under(safe_workspace, raw_path.name)
     )
     return safe_manifest, outputs_root.resolve(), project_root.resolve()
+
+
+def _mapping_section(manifest: Dict[str, Any], key: str) -> Dict[str, Any]:
+    value = manifest.setdefault(key, {})
+    if not isinstance(value, dict):
+        raise InvalidSchemaError(f"Post manifest {key} must be a JSON object")
+    return dict(value)
 
 
 def _resolve_legacy_caption_path(project_root: Path, captions_root: Path | None, raw_path: str) -> Path:

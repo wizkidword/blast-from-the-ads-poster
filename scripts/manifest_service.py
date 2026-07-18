@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import shutil
 import time
@@ -19,15 +18,19 @@ except ImportError:
     from scripts.media_processing import get_media_dimensions
 
 try:
-    from publishing import PublishStatus, build_initial_publishing_state, infer_mime_type, utc_now_iso
+    from publishing import MANIFEST_SCHEMA_VERSION, PublishStatus, build_initial_publishing_state, infer_mime_type, utc_now_iso
 except ImportError:
-    from scripts.publishing import PublishStatus, build_initial_publishing_state, infer_mime_type, utc_now_iso
+    from scripts.publishing import MANIFEST_SCHEMA_VERSION, PublishStatus, build_initial_publishing_state, infer_mime_type, utc_now_iso
 
 try:
     from safe_paths import UnsafePathError, normalize_relative_to, require_plain_filename, resolve_existing_under, resolve_output_under
 except ImportError:
     from scripts.safe_paths import UnsafePathError, normalize_relative_to, require_plain_filename, resolve_existing_under, resolve_output_under
 
+try:
+    from atomic_io import atomic_write_json
+except ImportError:
+    from scripts.atomic_io import atomic_write_json
 
 def relative_to_base(path: Path, base_dir: Path) -> str:
     try:
@@ -116,7 +119,7 @@ def write_post_manifest(
     if legacy_caption_path:
         legacy_caption_path = resolve_existing_under(legacy_caption_root or base_dir, legacy_caption_path)
     manifest = {
-        "schema_version": 1,
+        "schema_version": MANIFEST_SCHEMA_VERSION,
         "post_id": post_id,
         "post_type": post_type,
         "created_at": utc_now_iso(),
@@ -153,7 +156,7 @@ def write_post_manifest(
         "publishing": build_initial_publishing_state(default_status=workflow_status),
     }
     manifest_path = resolve_output_under(output_dir, manifest_path)
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    atomic_write_json(manifest_path, manifest)
     return manifest_path
 
 
