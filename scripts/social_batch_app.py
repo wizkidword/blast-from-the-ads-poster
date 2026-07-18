@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
+import importlib
 import os
 import shutil
 import threading
@@ -45,9 +47,9 @@ except ImportError:
     from scripts.app_context import AppContext, build_app_context, prepare_app_context
 
 try:
-    from app_metadata import build_version_label
+    from app_metadata import PACKAGE_HIDDEN_IMPORTS, build_version_label
 except ImportError:
-    from scripts.app_metadata import build_version_label
+    from scripts.app_metadata import PACKAGE_HIDDEN_IMPORTS, build_version_label
 
 try:
     from process_inbox_social import get_openai_api_key, has_failed_results, load_env
@@ -1193,12 +1195,34 @@ class SocialBatchApp:
         os.startfile(path)  # type: ignore[attr-defined]
 
 
-def main() -> None:
+def run_packaged_smoke_test(context: AppContext | None = None) -> int:
+    """Verify the frozen application's imports and writable local layout.
+
+    This deliberately avoids constructing ``Tk`` so CI can verify the onefile
+    executable on a clean Windows runner without a visible desktop window.
+    """
+
+    active_context = ensure_project_dirs(context or get_runtime_context())
+    for module_name in PACKAGE_HIDDEN_IMPORTS:
+        importlib.import_module(module_name)
+    print(f"Packaged smoke test passed for {build_version_label()} at {active_context.project_dir}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Blast From the Ads desktop app")
+    parser.add_argument("--smoke-test", action="store_true", help="Verify packaged imports and exit without opening the UI")
+    args = parser.parse_args(argv)
+
+    if args.smoke_test:
+        return run_packaged_smoke_test()
+
     ensure_project_dirs(get_runtime_context())
     root = Tk()
     SocialBatchApp(root)
     root.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

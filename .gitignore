@@ -1,21 +1,33 @@
 .env
 .venv/
+settings.json
 __pycache__/
 scripts/__pycache__/
-temp/frames/
-temp/analysis/
-cache/
-logs/*.json
+/temp/*
+!/temp/.gitkeep
+/cache/
+/logs/*
+!/logs/.gitkeep
 .workspace.lock
 .workspace.lock.json
 .transactions/
-inbox/.archive/
-inbox/.processing/
-outputs/.staging/
+/inbox/*
+!/inbox/.gitkeep
+/captions/*
+!/captions/.gitkeep
+/!processed/*
+!/!processed/.gitkeep
+/outputs/*
+!/outputs/.gitkeep
+/exports/*
+!/exports/.gitkeep
+/archive/*
+!/archive/.gitkeep
+/inbox/.archive/
+/inbox/.processing/
+/outputs/.staging/
 build/
 dist/
-outputs/*
-!outputs/.gitkeep
 
 # Local input libraries and one-off downloads. These are operational data,
 # not reproducible project source.

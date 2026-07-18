@@ -1,1 +1,3 @@
-requests>=2.32,<3
+# The executable is supported on Windows x64 with CPython 3.13.
+# This compatibility file intentionally delegates to the reviewed lock file.
+-r requirements-windows-py313.txt

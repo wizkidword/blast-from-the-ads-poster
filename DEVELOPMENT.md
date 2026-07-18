@@ -11,9 +11,9 @@
 ```powershell
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements-windows-py313.txt
 Copy-Item .env.example .env
+Copy-Item settings.example.json settings.json
 ```
 
 Add `OPENAI_API_KEY` to the local `.env` file only when running real media
@@ -24,24 +24,41 @@ analysis. The test suite does not need an API key or real input media.
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 .\.venv\Scripts\python.exe scripts\workflow.py setup
+cmd /c Verify-Release.bat
 ```
 
-The GitHub Actions workflow runs the first command on Windows with Python 3.13.
+The setup command checks the active local media configuration, while the
+release command is self-contained and does not read local `settings.json`.
+GitHub Actions runs the unit suite on Windows with Python 3.13, then rebuilds
+the standalone EXE from the same lock and runs its headless smoke-test mode.
 
 ## Workstation paths
 
-The tracked `settings.json` preserves the current workstation's caption and
-processed-media locations. Before running the live setup check on another
-machine, update those two values in the Settings tab (or leave them blank for
-the local `captions/` and `!processed/` folders). The configured drive must be
-mounted and writable. Each operation builds one validated directory context
-from `settings.json`; it rejects missing, file-valued, overlapping, nested, or
+`settings.example.json` is the safe-to-share template. Copy it to the ignored
+local `settings.json` before running the live setup check, then update the two
+media-directory values in the Settings tab (or leave them blank for the local
+`captions/` and `!processed/` folders). The configured drive must be mounted
+and writable. Each operation builds one validated directory context from
+`settings.json`; it rejects missing, file-valued, overlapping, nested, or
 non-writable managed folders before it moves or creates media.
 
 Saving settings validates the selected folders before writing the new values.
 The desktop app uses the resulting context immediately, so no restart is
 needed for processing, status, review, recovery, or export to use the new
 caption and processed-media locations.
+
+## Reproducible release build
+
+`Setup-Environment.bat`, `Build-Standalone-Exe.bat`,
+`Verify-Release.bat`, and the desktop launcher all use the same CPython 3.13
+virtual environment and `requirements-windows-py313.txt` lock. The setup step
+re-applies the lock even when `.venv` already exists, so a stale dependency
+cannot silently build the executable.
+
+Each standalone build writes `dist/release-metadata/SHA256SUMS.txt` and
+`dist/release-metadata/sbom.spdx.json`. Executable signing remains a separate
+release step because it requires signing credentials that are intentionally not
+stored in this repository.
 
 ## Local document safety
 

@@ -30,9 +30,10 @@ Local Windows version of the social media batch processor.
 ## Quick Start
 
 1. Copy `.env.example` to `.env`
-2. Add your `OPENAI_API_KEY`
-3. Double-click `Launch-Blast-From-The-Ads.bat`
-4. Use the desktop app to add files and run a batch
+2. Copy `settings.example.json` to `settings.json` if you want non-default preferences
+3. Add your `OPENAI_API_KEY`
+4. Double-click `Launch-Blast-From-The-Ads.bat`
+5. Use the desktop app to add files and run a batch
 
 ## Project Folders
 
@@ -43,7 +44,7 @@ Local Windows version of the social media batch processor.
 - `logs/` - JSON run summaries
 - `temp/` - temporary extracted video frames
 - `exports/posting-packs/` - optional manual posting packs created from reviewed posts
-- `settings.json` - optional non-secret app preferences such as retention days, OpenAI model, and default platforms
+- `settings.example.json` - safe-to-share defaults; copy it to ignored `settings.json` for local preferences
 
 ## Architecture
 
@@ -140,7 +141,8 @@ Validation checks caption length, hashtag count, carousel size, media extensions
 
 ## Settings
 
-Create or edit `settings.json` for non-secret preferences. Secrets still belong only in `.env`.
+Copy `settings.example.json` to ignored `settings.json`, then edit it or use the
+Settings tab for non-secret preferences. Secrets still belong only in `.env`.
 
 ```json
 {
@@ -153,8 +155,8 @@ Create or edit `settings.json` for non-secret preferences. Secrets still belong 
   "orphan_output_retention_days": 14,
   "stale_draft_days": 30,
   "preferred_platforms": ["manual_export", "instagram", "facebook"],
-  "captions_dir": "H:\\Postiz\\Captions",
-  "processed_dir": "H:\\Postiz\\Processed",
+  "captions_dir": "",
+  "processed_dir": "",
   "max_media_file_bytes": 1000000000,
   "max_image_pixels": 40000000,
   "max_image_dimension": 10000,
@@ -196,10 +198,12 @@ python scripts\workflow.py retry --run inbox-run-<run-id>.json --mode videos
 ## Standalone EXE
 
 - Run `Build-Standalone-Exe.bat` to package the app as a standalone Windows executable.
-- Run `Verify-Release.bat` to run tests, compile checks, setup checks, rebuild, and package-secret checks.
+- Run `Verify-Release.bat` to run tests, compile checks, rebuild, smoke-test the EXE, and check package secrets.
 - The finished build lands in `dist\BlastFromTheAds.exe`
 - A portable handoff folder lands in `dist\BlastFromTheAds-package\`
-- The build copies `.env.example`, but it does not copy your private `.env`; add a real `.env` beside the EXE only on the machine that runs the app.
+- The build copies `.env.example` and `settings.example.json`, but never your private `.env` or `settings.json`.
+- `dist\release-metadata\` contains `SHA256SUMS.txt` and an SPDX SBOM for the build.
+- GitHub Actions rebuilds the EXE from the pinned Windows Python 3.13 lock and runs its headless `--smoke-test` mode.
 
 ## Notes
 
