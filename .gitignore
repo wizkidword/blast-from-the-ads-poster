@@ -6,6 +6,10 @@ temp/frames/
 logs/*.json
 .workspace.lock
 .workspace.lock.json
+.transactions/
+inbox/.archive/
+inbox/.processing/
+outputs/.staging/
 build/
 dist/
 outputs/*

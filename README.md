@@ -169,6 +169,7 @@ python scripts\workflow.py inbox --limit 10
 ## Notes
 
 - A processing, cleanup, or requeue action holds a workspace lock while it changes files. A second app or command will stop with the active operation details instead of touching the same media. In-progress inbox files live temporarily in `inbox/.processing/<run-id>/` and return to `inbox/` if they were not consumed.
+- Each live media job is staged privately first. A completed workspace appears only after its caption, manifest, and media pass validation. Before that point, a failure returns the byte-for-byte original to `inbox/`; after that point, the original is retained in `inbox/.archive/<run-id>/` and any incomplete archival work resumes safely at the next inbox run.
 - Closing the desktop app during a run requests cancellation. It waits for the active AI or FFmpeg step to reach a safe stopping point before it closes.
 - All images in `inbox/` are grouped into one carousel caption for that run.
 - Videos are processed individually and each gets its own caption.

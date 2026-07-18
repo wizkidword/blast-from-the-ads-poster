@@ -266,6 +266,36 @@ class ProcessInboxSocialTests(unittest.TestCase):
 
             self.assertEqual([item["file"] for item in summary], ["retry-me.mp4"])
 
+    def test_live_inbox_run_routes_claimed_media_through_transaction_layer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            inbox_dir = root / "inbox"
+            logs_dir = root / "logs"
+            for directory in (inbox_dir, root / "captions", root / "processed", root / "outputs", logs_dir, root / "temp"):
+                directory.mkdir()
+            source = inbox_dir / "transactional.mp4"
+            source.write_bytes(b"video")
+
+            with (
+                patch.object(processor, "BASE_DIR", root),
+                patch.object(processor, "INBOX_DIR", inbox_dir),
+                patch.object(processor, "LOGS_DIR", logs_dir),
+                patch.object(processor, "load_env", return_value=None),
+                patch.object(processor, "get_openai_api_key", return_value="fake-key"),
+                patch.object(
+                    processor,
+                    "process_video_transaction",
+                    return_value={"type": "video", "file": "transactional.mp4", "status": "processed"},
+                ) as transactional_process,
+            ):
+                summary = processor.run_inbox_processing()
+
+            self.assertEqual(summary[0]["status"], "processed")
+            self.assertTrue(transactional_process.called)
+            transaction = transactional_process.call_args.args[0]
+            self.assertEqual(transaction.post_type, "video")
+            self.assertTrue(source.exists(), "A test hook that does not commit must release its inbox claim")
+
     def test_run_inbox_processing_refuses_target_outside_inbox_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

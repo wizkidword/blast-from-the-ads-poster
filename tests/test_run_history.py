@@ -98,6 +98,30 @@ class RunHistoryTests(unittest.TestCase):
             self.assertIn("1 failed", text)
             self.assertIn("video_conversion_failed", text)
 
+    def test_committed_archival_warning_is_visible_without_marking_the_media_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "inbox-run-warning.json"
+            log_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "type": "video",
+                            "file": "clip.mp4",
+                            "status": "committed_with_archival_warning",
+                            "warnings": ["Original source is waiting for archival recovery."],
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            summary = summarize_inbox_run(log_path)
+
+            self.assertEqual(summary.status, "warning")
+            self.assertEqual(summary.processed_count, 1)
+            self.assertEqual(summary.failed_count, 0)
+            self.assertIn("Original source is waiting", summary.error_messages[0])
+
     def test_load_inbox_run_details_includes_paths_and_failures(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_path = Path(temp_dir) / "inbox-run-500.json"
