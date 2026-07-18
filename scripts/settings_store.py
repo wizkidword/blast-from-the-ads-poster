@@ -12,13 +12,14 @@ except ImportError:
     from scripts.atomic_io import InvalidSchemaError, atomic_write_json, load_json, require_json_object, require_known_schema_version
 
 
-SETTINGS_SCHEMA_VERSION = 3
-_SUPPORTED_SETTINGS_SCHEMA_VERSIONS = {1, 2, SETTINGS_SCHEMA_VERSION}
+SETTINGS_SCHEMA_VERSION = 4
+_SUPPORTED_SETTINGS_SCHEMA_VERSIONS = {1, 2, 3, SETTINGS_SCHEMA_VERSION}
 
 
 @dataclass(frozen=True)
 class AppSettings:
     openai_model: str = "gpt-5.4-nano"
+    ai_analysis_enabled: bool = True
     allow_generic_fallback_captions: bool = False
     default_providers: tuple[str, ...] = ("manual_export",)
     logs_retention_days: int = 90
@@ -34,6 +35,10 @@ class AppSettings:
     max_video_duration_seconds: int = 900
     max_carousel_images: int = 20
     max_analysis_payload_bytes: int = 100_000_000
+    max_analysis_images: int = 8
+    max_analysis_image_dimension: int = 1_600
+    max_analysis_request_bytes: int = 12_000_000
+    max_analysis_video_frames: int = 8
 
 
 def load_settings(settings_path: Path) -> AppSettings:
@@ -61,6 +66,7 @@ def _settings_from_dict(raw: dict[str, Any]) -> AppSettings:
     defaults = AppSettings()
     return AppSettings(
         openai_model=_clean_openai_model(raw, defaults.openai_model),
+        ai_analysis_enabled=_strict_bool(raw, "ai_analysis_enabled", defaults.ai_analysis_enabled),
         allow_generic_fallback_captions=_strict_bool(raw, "allow_generic_fallback_captions", defaults.allow_generic_fallback_captions),
         default_providers=_clean_tuple(raw, "default_providers", defaults.default_providers),
         logs_retention_days=_positive_int(raw, "logs_retention_days", defaults.logs_retention_days),
@@ -76,6 +82,10 @@ def _settings_from_dict(raw: dict[str, Any]) -> AppSettings:
         max_video_duration_seconds=_positive_int(raw, "max_video_duration_seconds", defaults.max_video_duration_seconds),
         max_carousel_images=_positive_int(raw, "max_carousel_images", defaults.max_carousel_images),
         max_analysis_payload_bytes=_positive_int(raw, "max_analysis_payload_bytes", defaults.max_analysis_payload_bytes),
+        max_analysis_images=_positive_int(raw, "max_analysis_images", defaults.max_analysis_images),
+        max_analysis_image_dimension=_positive_int(raw, "max_analysis_image_dimension", defaults.max_analysis_image_dimension),
+        max_analysis_request_bytes=_positive_int(raw, "max_analysis_request_bytes", defaults.max_analysis_request_bytes),
+        max_analysis_video_frames=_positive_int(raw, "max_analysis_video_frames", defaults.max_analysis_video_frames),
     )
 
 

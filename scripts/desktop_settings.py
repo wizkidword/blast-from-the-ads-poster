@@ -20,17 +20,23 @@ class SettingsFormState:
     preferred_platforms: str
     captions_dir: str
     processed_dir: str
+    ai_analysis_enabled: bool = True
     max_media_file_bytes: str = "1000000000"
     max_image_pixels: str = "40000000"
     max_image_dimension: str = "10000"
     max_video_duration_seconds: str = "900"
     max_carousel_images: str = "20"
     max_analysis_payload_bytes: str = "100000000"
+    max_analysis_images: str = "8"
+    max_analysis_image_dimension: str = "1600"
+    max_analysis_request_bytes: str = "12000000"
+    max_analysis_video_frames: str = "8"
 
 
 def build_settings_form_state(settings: AppSettings) -> SettingsFormState:
     return SettingsFormState(
         openai_model=settings.openai_model,
+        ai_analysis_enabled=settings.ai_analysis_enabled,
         allow_generic_fallback_captions=settings.allow_generic_fallback_captions,
         default_providers=", ".join(settings.default_providers),
         logs_retention_days=str(settings.logs_retention_days),
@@ -46,12 +52,17 @@ def build_settings_form_state(settings: AppSettings) -> SettingsFormState:
         max_video_duration_seconds=str(settings.max_video_duration_seconds),
         max_carousel_images=str(settings.max_carousel_images),
         max_analysis_payload_bytes=str(settings.max_analysis_payload_bytes),
+        max_analysis_images=str(settings.max_analysis_images),
+        max_analysis_image_dimension=str(settings.max_analysis_image_dimension),
+        max_analysis_request_bytes=str(settings.max_analysis_request_bytes),
+        max_analysis_video_frames=str(settings.max_analysis_video_frames),
     )
 
 
 def parse_settings_form_state(state: SettingsFormState) -> AppSettings:
     return AppSettings(
         openai_model=_required_text(state.openai_model, "openai_model"),
+        ai_analysis_enabled=state.ai_analysis_enabled,
         allow_generic_fallback_captions=state.allow_generic_fallback_captions,
         default_providers=_parse_csv_tuple(state.default_providers, "default_providers"),
         logs_retention_days=_positive_int(state.logs_retention_days, "logs_retention_days"),
@@ -67,6 +78,10 @@ def parse_settings_form_state(state: SettingsFormState) -> AppSettings:
         max_video_duration_seconds=_positive_int(state.max_video_duration_seconds, "max_video_duration_seconds"),
         max_carousel_images=_positive_int(state.max_carousel_images, "max_carousel_images"),
         max_analysis_payload_bytes=_positive_int(state.max_analysis_payload_bytes, "max_analysis_payload_bytes"),
+        max_analysis_images=_positive_int(state.max_analysis_images, "max_analysis_images"),
+        max_analysis_image_dimension=_positive_int(state.max_analysis_image_dimension, "max_analysis_image_dimension"),
+        max_analysis_request_bytes=_positive_int(state.max_analysis_request_bytes, "max_analysis_request_bytes"),
+        max_analysis_video_frames=_positive_int(state.max_analysis_video_frames, "max_analysis_video_frames"),
     )
 
 

@@ -34,6 +34,11 @@ except ImportError:
         require_known_schema_version,
     )
 
+try:
+    from analysis_provenance import AnalysisProvenance, normalize_provenance, requires_manual_review
+except ImportError:
+    from scripts.analysis_provenance import AnalysisProvenance, normalize_provenance, requires_manual_review
+
 
 MANIFEST_SCHEMA_VERSION = 3
 _SUPPORTED_MANIFEST_SCHEMA_VERSIONS = {1, 2, MANIFEST_SCHEMA_VERSION}
@@ -235,7 +240,20 @@ def ensure_manifest_defaults(manifest: Dict[str, Any]) -> Dict[str, Any]:
 
     analysis = manifest["analysis"]
     analysis.setdefault("source", "unknown")
+    # Older manifests did not record provenance. Preserve their historic Ready
+    # behavior instead of retroactively treating every existing post as a
+    # manual draft; new processing always writes an explicit value.
+    analysis["provenance"] = normalize_provenance(
+        analysis.get("provenance") or analysis.get("source"),
+        default=AnalysisProvenance.VISION,
+    )
     analysis.setdefault("error", None)
+    analysis.setdefault("provider", None)
+    analysis.setdefault("model", None)
+    analysis.setdefault("prompt_version", None)
+    analysis.setdefault("cached", False)
+    analysis.setdefault("input_count", None)
+    analysis.setdefault("cache_key", None)
     analysis.setdefault("meta", {})
     if not isinstance(analysis["meta"], dict):
         raise InvalidSchemaError("Post manifest analysis.meta must be a JSON object")
@@ -348,9 +366,18 @@ def update_manifest_review(
     readiness_validator: Callable[[Dict[str, Any]], Sequence[Any]] | None = None,
 ) -> Dict[str, Any]:
     manifest = ensure_manifest_defaults(manifest)
+    original_content = dict(manifest["content"])
     manifest["content"]["title"] = title.strip()
     manifest["content"]["description"] = description.strip()
     manifest["content"]["hashtags"] = normalize_hashtag_list(hashtags)
+
+    changed_copy = any(
+        manifest["content"][field] != original_content.get(field)
+        for field in ("title", "description", "hashtags")
+    )
+    provenance = manifest["analysis"].get("provenance")
+    if requires_manual_review(provenance) and workflow_status != PublishStatus.READY.value and (changed_copy or note.strip()):
+        manifest["analysis"]["provenance"] = AnalysisProvenance.EDITED_AFTER_GENERATION.value
 
     provider_states = manifest["publishing"]["providers"]
     cleaned_selected = [name for name in selected_providers if name in provider_states]

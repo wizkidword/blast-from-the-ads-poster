@@ -123,9 +123,9 @@ except ImportError:
     )
 
 try:
-    from media_probe import limits_from_settings, preflight_media_files
+    from media_probe import limits_from_settings, preflight_media_files, probe_media
 except ImportError:
-    from scripts.media_probe import limits_from_settings, preflight_media_files
+    from scripts.media_probe import limits_from_settings, preflight_media_files, probe_media
 
 try:
     from ai_analysis import (
@@ -135,6 +135,8 @@ try:
         _call_openai_detailed,
         analyze_image_batch_with_fallback,
         analyze_with_fallback,
+        ai_analysis_enabled,
+        analysis_policy_from_settings,
         build_filename_context,
         build_smart_title,
         call_openai,
@@ -155,6 +157,8 @@ except ImportError:
         _call_openai_detailed,
         analyze_image_batch_with_fallback,
         analyze_with_fallback,
+        ai_analysis_enabled,
+        analysis_policy_from_settings,
         build_filename_context,
         build_smart_title,
         call_openai,
@@ -212,9 +216,17 @@ except ImportError:
     from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
 
 try:
-    from media_artifacts import cleanup_temp_files as _cleanup_temp_files, extract_video_frames as _extract_video_frames
+    from media_artifacts import (
+        cleanup_temp_files as _cleanup_temp_files,
+        extract_video_frames as _extract_video_frames,
+        proportional_frame_timestamps,
+    )
 except ImportError:
-    from scripts.media_artifacts import cleanup_temp_files as _cleanup_temp_files, extract_video_frames as _extract_video_frames
+    from scripts.media_artifacts import (
+        cleanup_temp_files as _cleanup_temp_files,
+        extract_video_frames as _extract_video_frames,
+        proportional_frame_timestamps,
+    )
 
 try:
     from processing_orchestrator import (
@@ -318,6 +330,12 @@ def extract_video_frames(
 ) -> List[Path]:
     active_context = context or _legacy_context()
     safe_video_path = resolve_existing_under(active_context.inbox_dir, video_path)
+    if seconds_list is None:
+        try:
+            duration = probe_media(safe_video_path).duration_seconds
+        except ValueError:
+            duration = None
+        seconds_list = proportional_frame_timestamps(duration, active_context.settings.max_analysis_video_frames)
     return _extract_video_frames(
         safe_video_path,
         active_context.temp_dir,
@@ -592,6 +610,8 @@ class _ProcessingRuntime:
             file_paths,
             fallback_meta,
             cancellation_check=self.check_cancelled,
+            policy=analysis_policy_from_settings(self.context.settings),
+            workspace_root=self.context.project_dir,
         )
 
     def analyze_image_batch_with_fallback(
@@ -605,6 +625,8 @@ class _ProcessingRuntime:
             image_files,
             fallback_meta,
             cancellation_check=self.check_cancelled,
+            policy=analysis_policy_from_settings(self.context.settings),
+            workspace_root=self.context.project_dir,
         )
 
     def write_post_manifest(self, *args, **kwargs) -> Path:
@@ -701,10 +723,10 @@ def run_inbox_processing(
     run_id = uuid4().hex
     cancellation_token = cancellation_token or CancellationToken()
     load_env()
-    if not get_openai_api_key():
+    analysis_policy = analysis_policy_from_settings(active_context.settings)
+    if not get_openai_api_key() and ai_analysis_enabled(analysis_policy):
         print("ERROR: OPENAI_API_KEY is not configured.")
-        print("Create a local .env file from .env.example and add your OpenAI API key before processing.")
-        print("The app now stops here so it does not generate weak fallback captions.")
+        print("Create a local .env file from .env.example, or disable AI analysis to create editable manual drafts.")
         return [
             {
                 "type": "run",
@@ -713,6 +735,8 @@ def run_inbox_processing(
                 "message": "OPENAI_API_KEY is not configured.",
             }
         ]
+    if not ai_analysis_enabled(analysis_policy):
+        print("AI analysis is disabled. Media stays local; the app will create editable manual drafts.")
 
     if target_files is not None:
         try:

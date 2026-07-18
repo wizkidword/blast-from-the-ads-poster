@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import math
 import subprocess
 import shutil
 from pathlib import Path
@@ -64,17 +66,40 @@ def extract_video_frames(
             frames.append(frame_path)
 
     unique_frames: List[Path] = []
-    seen_sizes = set()
+    seen_hashes = set()
     for frame in frames:
         try:
-            key = (frame.stat().st_size, frame.name)
+            key = _file_sha256(frame)
         except OSError:
             continue
-        if key in seen_sizes:
+        if key in seen_hashes:
             continue
-        seen_sizes.add(key)
+        seen_hashes.add(key)
         unique_frames.append(frame)
     return unique_frames
+
+
+def proportional_frame_timestamps(duration_seconds: float | None, frame_limit: int) -> List[int]:
+    """Spread bounded frame samples through a video instead of taking only its start."""
+
+    if frame_limit <= 0:
+        return []
+    if duration_seconds is None or duration_seconds <= 0:
+        return [1, 3, 5][:frame_limit]
+    count = min(frame_limit, max(1, math.ceil(duration_seconds / 30)))
+    timestamps = {
+        max(0, min(int(duration_seconds), round(duration_seconds * index / (count + 1))))
+        for index in range(1, count + 1)
+    }
+    return sorted(timestamps) or [0]
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def cleanup_temp_files(paths: List[Path], temp_dir: Path) -> None:

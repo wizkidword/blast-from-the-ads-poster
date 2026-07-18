@@ -33,6 +33,7 @@ class SettingsStoreTests(unittest.TestCase):
             settings_path = Path(temp_dir) / "settings.json"
             settings = AppSettings(
                 openai_model="gpt-5.4",
+                ai_analysis_enabled=False,
                 allow_generic_fallback_captions=True,
                 default_providers=("manual_export", "instagram"),
                 logs_retention_days=30,
@@ -46,6 +47,10 @@ class SettingsStoreTests(unittest.TestCase):
                 max_video_duration_seconds=45,
                 max_carousel_images=6,
                 max_analysis_payload_bytes=654_321,
+                max_analysis_images=5,
+                max_analysis_image_dimension=1200,
+                max_analysis_request_bytes=456_789,
+                max_analysis_video_frames=4,
             )
 
             save_settings(settings_path, settings)
@@ -59,6 +64,8 @@ class SettingsStoreTests(unittest.TestCase):
             self.assertEqual(raw["captions_dir"], r"H:\Postiz\Captions")
             self.assertEqual(raw["processed_dir"], r"H:\Postiz\Processed")
             self.assertEqual(raw["max_video_duration_seconds"], 45)
+            self.assertFalse(raw["ai_analysis_enabled"])
+            self.assertEqual(raw["max_analysis_images"], 5)
 
     def test_load_settings_ignores_legacy_gemini_model_names(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

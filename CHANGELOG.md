@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.4.0 - 2026-07-18
+
+- Added bounded AI-analysis copies, image/frame limits, proportional video sampling, duplicate-frame removal, and low-detail request defaults.
+- Added local content-addressed analysis caching and strict structured-output validation with bounded, cancellable retries.
+- Manifests now record provenance, model, prompt version, cache status, and provider metadata without recording secrets or media payloads.
+- Added a Skip AI mode that creates editable local drafts without an API key; text-only, generic, and manual drafts require a saved review before Ready.
+
 ## 4.3.0 - 2026-07-18
 
 - Posting packs now build in a temporary sibling folder and replace an existing pack only after every file is copied and verified.
