@@ -12,8 +12,8 @@ except ImportError:
     from scripts.atomic_io import InvalidSchemaError, atomic_write_json, load_json, require_json_object, require_known_schema_version
 
 
-SETTINGS_SCHEMA_VERSION = 2
-_SUPPORTED_SETTINGS_SCHEMA_VERSIONS = {1, SETTINGS_SCHEMA_VERSION}
+SETTINGS_SCHEMA_VERSION = 3
+_SUPPORTED_SETTINGS_SCHEMA_VERSIONS = {1, 2, SETTINGS_SCHEMA_VERSION}
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,12 @@ class AppSettings:
     preferred_platforms: tuple[str, ...] = ("manual_export", "instagram", "facebook")
     captions_dir: str = ""
     processed_dir: str = ""
+    max_media_file_bytes: int = 1_000_000_000
+    max_image_pixels: int = 40_000_000
+    max_image_dimension: int = 10_000
+    max_video_duration_seconds: int = 900
+    max_carousel_images: int = 20
+    max_analysis_payload_bytes: int = 100_000_000
 
 
 def load_settings(settings_path: Path) -> AppSettings:
@@ -64,6 +70,12 @@ def _settings_from_dict(raw: dict[str, Any]) -> AppSettings:
         preferred_platforms=_clean_tuple(raw, "preferred_platforms", defaults.preferred_platforms),
         captions_dir=_optional_string(raw, "captions_dir"),
         processed_dir=_optional_string(raw, "processed_dir"),
+        max_media_file_bytes=_positive_int(raw, "max_media_file_bytes", defaults.max_media_file_bytes),
+        max_image_pixels=_positive_int(raw, "max_image_pixels", defaults.max_image_pixels),
+        max_image_dimension=_positive_int(raw, "max_image_dimension", defaults.max_image_dimension),
+        max_video_duration_seconds=_positive_int(raw, "max_video_duration_seconds", defaults.max_video_duration_seconds),
+        max_carousel_images=_positive_int(raw, "max_carousel_images", defaults.max_carousel_images),
+        max_analysis_payload_bytes=_positive_int(raw, "max_analysis_payload_bytes", defaults.max_analysis_payload_bytes),
     )
 
 

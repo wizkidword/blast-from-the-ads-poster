@@ -28,11 +28,6 @@ except ImportError:
     from scripts.atomic_io import atomic_write_json, atomic_write_text, load_json, require_json_object
 
 try:
-    from media_processing import get_media_dimensions
-except ImportError:
-    from scripts.media_processing import get_media_dimensions
-
-try:
     from media_processing import (
         INSTAGRAM_VIDEO_HEIGHT,
         INSTAGRAM_VIDEO_WIDTH,
@@ -68,6 +63,11 @@ try:
     from media_rules import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 except ImportError:
     from scripts.media_rules import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
+
+try:
+    from media_probe import MediaMetadata, MediaProbeError, limits_from_settings, preflight_media_files, probe_media, verify_generated_media
+except ImportError:
+    from scripts.media_probe import MediaMetadata, MediaProbeError, limits_from_settings, preflight_media_files, probe_media, verify_generated_media
 
 try:
     from safe_paths import normalize_relative_to, require_plain_filename, resolve_existing_under, resolve_output_under
@@ -264,6 +264,22 @@ class ProcessingTransaction:
         self._transition(TransactionState.VALIDATED)
         self._checkpoint("after_validation")
 
+    def preflight_sources(self, sources: Sequence[Path], *, expected_type: str) -> tuple[MediaMetadata, ...]:
+        """Reject malformed, oversized, or wrongly typed claimed media before AI/FFmpeg work."""
+
+        report = preflight_media_files(sources, limits_from_settings(self.context.settings))
+        if report.rejected:
+            detail = "; ".join(f"{issue.path.name}: {issue.message}" for issue in report.rejected)
+            raise TransactionError(f"Media preflight rejected source(s): {detail}")
+        metadata = report.accepted
+        if len(metadata) != len(sources):
+            raise TransactionError("Media preflight did not return every staged source")
+        invalid = [item.path.name for item in metadata if item.actual_type != expected_type]
+        if invalid:
+            raise TransactionError(f"Media type does not match this workflow: {', '.join(invalid)}")
+        self._checkpoint("after_media_preflight")
+        return metadata
+
     def commit_and_archive(self) -> TransactionResult:
         if self.state is not TransactionState.VALIDATED or not self.final_workspace:
             raise TransactionError("Only validated staging workspaces can be committed")
@@ -332,11 +348,15 @@ class ProcessingTransaction:
 
     def _validate_media(self, path: Path) -> None:
         suffix = path.suffix.lower()
+        try:
+            metadata = probe_media(path)
+        except MediaProbeError as exc:
+            raise TransactionError(str(exc)) from exc
         if suffix in IMAGE_EXTENSIONS:
-            if get_media_dimensions(path) is None:
+            if metadata.actual_type != "image" or metadata.width is None or metadata.height is None:
                 raise TransactionError(f"Staged image is unreadable: {path.name}")
         elif suffix in VIDEO_EXTENSIONS:
-            if get_media_dimensions(path) is None:
+            if metadata.actual_type != "video" or metadata.width is None or metadata.height is None:
                 raise TransactionError(f"Staged video could not be probed: {path.name}")
         else:
             raise TransactionError(f"Unsupported staged media artifact: {path.name}")
@@ -505,6 +525,7 @@ def process_video_transaction(transaction: ProcessingTransaction, api) -> dict[s
     try:
         workspace, working_sources = transaction.start(build_post_id("video", [claim.original_path]))
         source = working_sources[0]
+        transaction.preflight_sources([source], expected_type="video")
         api.check_cancelled()
         frame_paths = extract_video_frames(source, transaction.staging_root / "frames", cancellation_check=api.check_cancelled)
         transaction._checkpoint("after_frame_extraction")
@@ -529,6 +550,12 @@ def process_video_transaction(transaction: ProcessingTransaction, api) -> dict[s
         staged_processed = transaction.staged_processed_path(f"{source.stem}.mp4")
         if not convert_video_to_vertical(source, staged_processed, cancellation_check=api.check_cancelled):
             raise TransactionError("Video conversion did not produce a valid staged output")
+        verify_generated_media(
+            staged_processed,
+            expected_type="video",
+            width=INSTAGRAM_VIDEO_WIDTH,
+            height=INSTAGRAM_VIDEO_HEIGHT,
+        )
         transaction._checkpoint("after_video_conversion")
         transaction.register_processed_artifact(staged_processed, staged_processed.name)
         workspace_media = transaction.staged_workspace_path(Path("media") / staged_processed.name)
@@ -583,6 +610,7 @@ def process_image_batch_transaction(transaction: ProcessingTransaction, api) -> 
     claims = transaction.claims
     try:
         workspace, working_sources = transaction.start(build_post_id("image-carousel", [claim.original_path for claim in claims]))
+        source_metadata = transaction.preflight_sources(working_sources, expected_type="image")
         api.check_cancelled()
         filenames_text = "\n".join(f"- {claim.original_path.name}" for claim in claims)
         prompt = (
@@ -608,15 +636,20 @@ def process_image_batch_transaction(transaction: ProcessingTransaction, api) -> 
         for index, source in enumerate(working_sources):
             api.check_cancelled()
             claim = claims[index]
-            destination = transaction.staged_processed_path(source.name)
-            dimensions = get_media_dimensions(source)
-            needs_convert = dimensions != (1080, 1350)
+            source_suffix = source.suffix.lower()
+            destination_name = source.name if source_suffix in IMAGE_EXTENSIONS else f"{source.stem}-{index + 1:03d}.jpg"
+            destination = transaction.staged_processed_path(destination_name)
+            dimensions = (source_metadata[index].width, source_metadata[index].height)
+            needs_convert = dimensions != (1080, 1350) or source_suffix not in IMAGE_EXTENSIONS
             if needs_convert:
                 converted = convert_image_to_instagram(source, destination, cancellation_check=api.check_cancelled)
                 if not converted:
+                    if source_suffix not in IMAGE_EXTENSIONS:
+                        raise TransactionError(f"Image conversion could not normalize unexpected extension: {source.name}")
                     shutil.copy2(source, destination)
             else:
                 shutil.copy2(source, destination)
+            verify_generated_media(destination, expected_type="image", width=1080, height=1350)
             transaction.register_processed_artifact(destination, destination.name)
             staged_processed.append(destination)
             media_path = transaction.staged_workspace_path(Path("media") / destination.name)
@@ -628,6 +661,12 @@ def process_image_batch_transaction(transaction: ProcessingTransaction, api) -> 
         staged_carousel = transaction.staged_processed_path(carousel_name)
         if not create_carousel_video_from_images(staged_processed, staged_carousel, cancellation_check=api.check_cancelled):
             raise TransactionError("Carousel slideshow generation did not produce a valid staged output")
+        verify_generated_media(
+            staged_carousel,
+            expected_type="video",
+            width=INSTAGRAM_VIDEO_WIDTH,
+            height=INSTAGRAM_VIDEO_HEIGHT,
+        )
         transaction._checkpoint("after_slideshow_generation")
         transaction.register_processed_artifact(staged_carousel, staged_carousel.name)
         carousel_workspace = transaction.staged_workspace_path(Path("tiktok") / "media" / staged_carousel.name)

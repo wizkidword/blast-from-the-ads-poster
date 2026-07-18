@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -119,7 +120,11 @@ class ProcessingTransactionTests(unittest.TestCase):
                 },
             )
             transaction.rewrite_manifest_for_final_paths(manifest_path, context.captions_dir / "ad.txt")
-            with patch.object(transactions, "get_media_dimensions", return_value=(1, 1)):
+            with patch.object(
+                transactions,
+                "probe_media",
+                return_value=SimpleNamespace(actual_type="image", width=1, height=1),
+            ):
                 transaction.validate(expected_media_count=1)
             result = transaction.commit_and_archive()
 
@@ -174,7 +179,11 @@ class ProcessingTransactionTests(unittest.TestCase):
                 },
             )
             transaction.rewrite_manifest_for_final_paths(manifest_path, context.captions_dir / "ad.txt")
-            with patch.object(transactions, "get_media_dimensions", return_value=(1, 1)):
+            with patch.object(
+                transactions,
+                "probe_media",
+                return_value=SimpleNamespace(actual_type="image", width=1, height=1),
+            ):
                 transaction.validate(expected_media_count=1)
             result = transaction.commit_and_archive()
 
@@ -235,7 +244,13 @@ class ProcessingTransactionTests(unittest.TestCase):
             with (
                 patch.object(transactions, "extract_video_frames", return_value=[]),
                 patch.object(transactions, "convert_video_to_vertical", side_effect=fake_convert),
-                patch.object(transactions, "get_media_dimensions", return_value=(1080, 1920)),
+                patch.object(transactions.ProcessingTransaction, "preflight_sources", return_value=()),
+                patch.object(transactions, "verify_generated_media"),
+                patch.object(
+                    transactions,
+                    "probe_media",
+                    return_value=type("Probe", (), {"actual_type": "video", "width": 1080, "height": 1920})(),
+                ),
             ):
                 result = transactions.process_video_transaction(transaction, FakeApi())
 
