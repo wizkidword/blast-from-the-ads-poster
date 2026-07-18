@@ -28,9 +28,14 @@ except ImportError:
     from scripts.app_paths import get_project_root
 
 try:
-    from settings_store import load_settings, resolve_configured_dir
+    from app_context import AppContext, build_app_context, prepare_app_context
 except ImportError:
-    from scripts.settings_store import load_settings, resolve_configured_dir
+    from scripts.app_context import AppContext, build_app_context, prepare_app_context
+
+try:
+    from settings_store import load_settings
+except ImportError:
+    from scripts.settings_store import load_settings
 
 try:
     from media_rules import (
@@ -189,15 +194,35 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 LOGS_DIR = BASE_DIR / "logs"
 TEMP_DIR = BASE_DIR / "temp"
 
-
-def configure_output_dirs_from_settings() -> None:
-    global CAPTIONS_DIR, PROCESSED_DIR
-    settings = load_settings(SETTINGS_PATH)
-    CAPTIONS_DIR = resolve_configured_dir(BASE_DIR, settings.captions_dir, "captions")
-    PROCESSED_DIR = resolve_configured_dir(BASE_DIR, settings.processed_dir, "!processed")
+# Legacy module constants remain only for direct helper compatibility. Runtime
+# operations construct and receive an AppContext instead of mutating these.
+def get_runtime_context() -> AppContext:
+    return build_app_context(BASE_DIR, settings_path=BASE_DIR / "settings.json")
 
 
-configure_output_dirs_from_settings()
+def _legacy_context() -> AppContext:
+    """Preserve direct helper compatibility while runtime entry points use AppContext."""
+
+    project_dir = OUTPUTS_DIR.parent
+    return AppContext(
+        project_dir=project_dir,
+        settings_path=project_dir / "settings.json",
+        settings=load_settings(SETTINGS_PATH),
+        inbox_dir=INBOX_DIR,
+        captions_dir=CAPTIONS_DIR,
+        processed_dir=PROCESSED_DIR,
+        outputs_dir=OUTPUTS_DIR,
+        logs_dir=LOGS_DIR,
+        exports_dir=project_dir / "exports",
+        temp_dir=TEMP_DIR,
+    )
+
+
+def configure_output_dirs_from_settings() -> AppContext:
+    """Deprecated compatibility helper; callers should pass a fresh AppContext."""
+
+    return get_runtime_context()
+
 
 # Backward-compatible exports for older local helpers that imported the old Gemini names.
 get_google_api_key = get_openai_api_key
@@ -220,16 +245,16 @@ def load_env() -> None:
         os.environ.setdefault(key.strip(), value.strip())
 
 
-def ensure_dirs() -> None:
-    for directory in (INBOX_DIR, CAPTIONS_DIR, PROCESSED_DIR, OUTPUTS_DIR, LOGS_DIR, TEMP_DIR):
-        directory.mkdir(parents=True, exist_ok=True)
+def ensure_dirs(context: AppContext | None = None) -> AppContext:
+    return prepare_app_context(context or _legacy_context())
 
 
-def list_inbox_files(limit: Optional[int] = None) -> List[Path]:
+def list_inbox_files(limit: Optional[int] = None, *, context: AppContext | None = None) -> List[Path]:
+    active_context = context or _legacy_context()
     files = []
-    for path in sorted(INBOX_DIR.iterdir()):
+    for path in sorted(active_context.inbox_dir.iterdir()):
         try:
-            safe_path = resolve_existing_under(INBOX_DIR, path)
+            safe_path = resolve_existing_under(active_context.inbox_dir, path)
         except UnsafePathError:
             continue
         if is_supported_media_file(safe_path):
@@ -239,29 +264,40 @@ def list_inbox_files(limit: Optional[int] = None) -> List[Path]:
     return files
 
 
-def extract_video_frames(video_path: Path, seconds_list: Optional[List[int]] = None) -> List[Path]:
-    safe_video_path = resolve_existing_under(INBOX_DIR, video_path)
-    return _extract_video_frames(safe_video_path, TEMP_DIR, seconds_list=seconds_list)
+def extract_video_frames(
+    video_path: Path,
+    seconds_list: Optional[List[int]] = None,
+    *,
+    context: AppContext | None = None,
+) -> List[Path]:
+    active_context = context or _legacy_context()
+    safe_video_path = resolve_existing_under(active_context.inbox_dir, video_path)
+    return _extract_video_frames(safe_video_path, active_context.temp_dir, seconds_list=seconds_list)
 
 
-def cleanup_temp_files(paths: List[Path]) -> None:
-    _cleanup_temp_files(paths, TEMP_DIR)
+def cleanup_temp_files(paths: List[Path], *, context: AppContext | None = None) -> None:
+    _cleanup_temp_files(paths, (context or _legacy_context()).temp_dir)
 
 
-def relative_to_base(path: Path) -> str:
-    return _relative_to_base(path, BASE_DIR)
+def relative_to_base(path: Path, *, context: AppContext | None = None) -> str:
+    return _relative_to_base(path, (context or _legacy_context()).project_dir)
 
 
 def has_failed_results(summary: List[Dict]) -> bool:
     return any(item.get("status") == "failed" for item in summary)
 
 
-def create_output_workspace(post_type: str, file_paths: List[Path]) -> Tuple[str, Path]:
-    return _create_output_workspace(OUTPUTS_DIR, post_type, file_paths)
+def create_output_workspace(
+    post_type: str,
+    file_paths: List[Path],
+    *,
+    context: AppContext | None = None,
+) -> Tuple[str, Path]:
+    return _create_output_workspace((context or _legacy_context()).outputs_dir, post_type, file_paths)
 
 
-def build_media_file_record(path: Path, role: str, order: int) -> Dict:
-    return _build_media_file_record(path, role, order, BASE_DIR)
+def build_media_file_record(path: Path, role: str, order: int, *, context: AppContext | None = None) -> Dict:
+    return _build_media_file_record(path, role, order, (context or _legacy_context()).project_dir)
 
 
 def write_post_manifest(
@@ -281,7 +317,10 @@ def write_post_manifest(
     analysis_error: Optional[str],
     caption_path: Path,
     legacy_caption_path: Optional[Path],
+    *,
+    context: AppContext | None = None,
 ) -> Path:
+    active_context = context or _legacy_context()
     return _write_post_manifest(
         post_id=post_id,
         output_dir=output_dir,
@@ -299,20 +338,30 @@ def write_post_manifest(
         analysis_error=analysis_error,
         caption_path=caption_path,
         legacy_caption_path=legacy_caption_path,
-        base_dir=OUTPUTS_DIR.parent,
-        inbox_dir=INBOX_DIR,
-        legacy_caption_root=CAPTIONS_DIR,
+        base_dir=active_context.project_dir,
+        inbox_dir=active_context.inbox_dir,
+        legacy_caption_root=active_context.captions_dir,
     )
 
 
-def instagram_video_destination(file_path: Path, processed_dir: Path | None = None) -> Path:
-    processed_dir = processed_dir or PROCESSED_DIR
+def instagram_video_destination(
+    file_path: Path,
+    processed_dir: Path | None = None,
+    *,
+    context: AppContext | None = None,
+) -> Path:
+    processed_dir = processed_dir or (context or _legacy_context()).processed_dir
     name = require_plain_filename(f"{file_path.stem}.mp4")
     return resolve_output_under(processed_dir, name)
 
 
-def carousel_video_destination(post_id: str, processed_dir: Path | None = None) -> Path:
-    processed_dir = processed_dir or PROCESSED_DIR
+def carousel_video_destination(
+    post_id: str,
+    processed_dir: Path | None = None,
+    *,
+    context: AppContext | None = None,
+) -> Path:
+    processed_dir = processed_dir or (context or _legacy_context()).processed_dir
     name = require_plain_filename(f"{post_id}-carousel-video.mp4")
     return resolve_output_under(processed_dir, name)
 
@@ -324,13 +373,15 @@ def handle_image_conversion_and_move(
     *,
     inbox_root: Path | None = None,
     processed_root: Path | None = None,
+    context: AppContext | None = None,
 ) -> Optional[Path]:
     if dry_run:
         print("   DRY RUN: image move and conversion skipped")
         return None
 
-    inbox_root = inbox_root or INBOX_DIR
-    processed_root = processed_root or PROCESSED_DIR
+    active_context = context or _legacy_context()
+    inbox_root = inbox_root or active_context.inbox_dir
+    processed_root = processed_root or active_context.processed_dir
     file_path = resolve_existing_under(inbox_root, file_path)
     destination = resolve_output_under(processed_root, destination)
 
@@ -361,13 +412,15 @@ def handle_video_conversion_and_move(
     *,
     inbox_root: Path | None = None,
     processed_root: Path | None = None,
+    context: AppContext | None = None,
 ) -> Optional[Path]:
     if dry_run:
         print("   DRY RUN: caption and file move skipped")
         return None
 
-    inbox_root = inbox_root or INBOX_DIR
-    processed_root = processed_root or PROCESSED_DIR
+    active_context = context or _legacy_context()
+    inbox_root = inbox_root or active_context.inbox_dir
+    processed_root = processed_root or active_context.processed_dir
     file_path = resolve_existing_under(inbox_root, file_path)
     destination = resolve_output_under(processed_root, destination)
 
@@ -390,12 +443,13 @@ def handle_carousel_video_creation(
     dry_run: bool = False,
     *,
     processed_root: Path | None = None,
+    context: AppContext | None = None,
 ) -> Optional[Path]:
     if dry_run:
         print("   DRY RUN: carousel video creation skipped")
         return None
 
-    processed_root = processed_root or PROCESSED_DIR
+    processed_root = processed_root or (context or _legacy_context()).processed_dir
     image_paths = [resolve_existing_under(processed_root, path) for path in image_paths]
     destination = resolve_output_under(processed_root, destination)
 
@@ -410,22 +464,97 @@ def handle_carousel_video_creation(
     return None
 
 
-def process_video_file(file_path: Path, dry_run: bool = False) -> Dict:
-    return _process_video_file(file_path, sys.modules[__name__], dry_run=dry_run)
+class _ProcessingRuntime:
+    """Context-bound API consumed by the processing orchestrator."""
+
+    def __init__(self, context: AppContext) -> None:
+        self.context = context
+
+    @property
+    def BASE_DIR(self) -> Path:
+        return self.context.project_dir
+
+    @property
+    def INBOX_DIR(self) -> Path:
+        return self.context.inbox_dir
+
+    @property
+    def CAPTIONS_DIR(self) -> Path:
+        return self.context.captions_dir
+
+    @property
+    def PROCESSED_DIR(self) -> Path:
+        return self.context.processed_dir
+
+    @property
+    def OUTPUTS_DIR(self) -> Path:
+        return self.context.outputs_dir
+
+    def extract_video_frames(self, video_path: Path, seconds_list: Optional[List[int]] = None) -> List[Path]:
+        return extract_video_frames(video_path, seconds_list, context=self.context)
+
+    def cleanup_temp_files(self, paths: List[Path]) -> None:
+        cleanup_temp_files(paths, context=self.context)
+
+    def create_output_workspace(self, post_type: str, file_paths: List[Path]) -> Tuple[str, Path]:
+        return create_output_workspace(post_type, file_paths, context=self.context)
+
+    def write_post_manifest(self, *args, **kwargs) -> Path:
+        return write_post_manifest(*args, **kwargs, context=self.context)
+
+    def instagram_video_destination(self, file_path: Path, processed_dir: Path | None = None) -> Path:
+        return instagram_video_destination(file_path, processed_dir, context=self.context)
+
+    def carousel_video_destination(self, post_id: str, processed_dir: Path | None = None) -> Path:
+        return carousel_video_destination(post_id, processed_dir, context=self.context)
+
+    def handle_image_conversion_and_move(self, file_path: Path, destination: Path, dry_run: bool = False) -> Optional[Path]:
+        return handle_image_conversion_and_move(file_path, destination, dry_run=dry_run, context=self.context)
+
+    def handle_video_conversion_and_move(self, file_path: Path, destination: Path, dry_run: bool = False) -> Optional[Path]:
+        return handle_video_conversion_and_move(file_path, destination, dry_run=dry_run, context=self.context)
+
+    def handle_carousel_video_creation(self, image_paths: List[Path], destination: Path, dry_run: bool = False) -> Optional[Path]:
+        return handle_carousel_video_creation(image_paths, destination, dry_run=dry_run, context=self.context)
+
+    def __getattr__(self, name: str):
+        return getattr(sys.modules[__name__], name)
 
 
-def _process_video_file_with_frames(file_path: Path, frame_paths: List[Path], dry_run: bool = False) -> Dict:
-    return _process_video_file_with_frames(file_path, frame_paths, sys.modules[__name__], dry_run=dry_run)
+def process_video_file(file_path: Path, dry_run: bool = False, *, context: AppContext | None = None) -> Dict:
+    return _process_video_file(file_path, _ProcessingRuntime(context or _legacy_context()), dry_run=dry_run)
 
 
-def process_image_batch(image_files: List[Path], dry_run: bool = False) -> Optional[Dict]:
-    return _process_image_batch(image_files, sys.modules[__name__], dry_run=dry_run)
+def _process_video_file_with_frames(
+    file_path: Path,
+    frame_paths: List[Path],
+    dry_run: bool = False,
+    *,
+    context: AppContext | None = None,
+) -> Dict:
+    return _process_video_file_with_frames(file_path, frame_paths, _ProcessingRuntime(context or _legacy_context()), dry_run=dry_run)
 
 
-def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, target_files: Optional[List[Path]] = None) -> List[Dict]:
+def process_image_batch(
+    image_files: List[Path],
+    dry_run: bool = False,
+    *,
+    context: AppContext | None = None,
+) -> Optional[Dict]:
+    return _process_image_batch(image_files, _ProcessingRuntime(context or _legacy_context()), dry_run=dry_run)
+
+
+def run_inbox_processing(
+    limit: Optional[int] = None,
+    dry_run: bool = False,
+    target_files: Optional[List[Path]] = None,
+    *,
+    context: AppContext | None = None,
+) -> List[Dict]:
+    active_context = context or get_runtime_context()
+    ensure_dirs(active_context)
     started_at = utc_now_iso()
     load_env()
-    ensure_dirs()
     if not get_openai_api_key():
         print("ERROR: OPENAI_API_KEY is not configured.")
         print("Create a local .env file from .env.example and add your OpenAI API key before processing.")
@@ -441,7 +570,7 @@ def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, tar
 
     if target_files is not None:
         try:
-            files = [resolve_existing_under(INBOX_DIR, Path(path)) for path in target_files]
+            files = [resolve_existing_under(active_context.inbox_dir, Path(path)) for path in target_files]
         except UnsafePathError as exc:
             print(f"ERROR: Unsafe retry path refused: {exc}")
             return [
@@ -457,7 +586,7 @@ def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, tar
         if limit:
             files = files[:limit]
     else:
-        files = list_inbox_files(limit=limit)
+        files = list_inbox_files(limit=limit, context=active_context)
 
     if not files:
         print("Inbox is empty. Add files to inbox/ first.")
@@ -475,7 +604,7 @@ def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, tar
     try:
         for video in videos:
             try:
-                summary.append(process_video_file(video, dry_run=dry_run))
+                summary.append(process_video_file(video, dry_run=dry_run, context=active_context))
             except Exception as exc:
                 print(f"   ERROR: Failed to process {video.name}: {exc}")
                 summary.append(
@@ -490,7 +619,7 @@ def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, tar
 
         if images:
             try:
-                image_result = process_image_batch(images, dry_run=dry_run)
+                image_result = process_image_batch(images, dry_run=dry_run, context=active_context)
                 if image_result:
                     summary.append(image_result)
             except Exception as exc:
@@ -507,7 +636,7 @@ def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, tar
                 )
     finally:
         log_path = write_run_ledger(
-            LOGS_DIR,
+            active_context.logs_dir,
             records=summary,
             command="inbox",
             dry_run=dry_run,
