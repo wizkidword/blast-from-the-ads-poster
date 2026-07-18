@@ -24,6 +24,7 @@ Local Windows version of the social media batch processor.
 - Validates posting packs against platform profiles for manual export, Instagram, TikTok, and Facebook
 - Supports non-secret `settings.json` preferences while keeping `.env` for secrets only
 - Checks actual media contents, dimensions, durations, and resource limits before analysis or conversion
+- Uses one visible readiness checklist before a post becomes Ready or a posting pack is exported
 - Uses a V4 tabbed desktop interface with Process, Review, Recovery, and Settings work areas
 
 ## Quick Start
@@ -106,6 +107,12 @@ The desktop app now includes a review queue that lets you:
 - filter stale drafts using the retention value from `settings.json`
 
 Saving from the review queue updates both the manifest and the caption export files.
+
+## Readiness Checks
+
+`Ready` now has one concrete meaning across the Review queue and posting-pack export. The app renders the exact caption first, then checks caption length, hashtag count, referenced files, actual media type/container, dimensions, size, duration, codec, and the selected platform's media-count limits.
+
+The Review context shows every pass, warning, and blocking item. A blocked post remains a draft until the source files or copy are corrected. An explicit code-level override is recorded with its reason and timestamp for the rare cases where a maintainer deliberately accepts a known exception.
 
 ## Safe Cleanup
 

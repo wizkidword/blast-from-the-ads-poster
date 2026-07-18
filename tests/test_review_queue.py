@@ -15,14 +15,25 @@ if str(SCRIPTS_DIR) not in sys.path:
 from review_queue import bulk_update_status, format_review_preview, query_review_items  # noqa: E402
 
 
-def write_manifest(folder: Path, *, post_id: str, status: str, title: str, brand: str, year: str) -> Path:
+_ONE_PIXEL_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0dIDATx\x9cc\xf8\xcf\xc0\xf0\x1f\x00\x05\x80\x02\x00"
+    b"{\x1e\x1d\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def portrait_png() -> bytes:
+    return _ONE_PIXEL_PNG[:16] + (1080).to_bytes(4, "big") + (1350).to_bytes(4, "big") + _ONE_PIXEL_PNG[24:]
+
+
+def write_manifest(folder: Path, *, post_id: str, status: str, title: str, brand: str, year: str, extension: str = ".mp4") -> Path:
     folder.mkdir(parents=True)
     manifest = {
         "post_id": post_id,
         "post_type": "video",
         "updated_at": "2026-05-03T00:00:00Z",
-        "source_files": [{"filename": f"{post_id}.mp4"}],
-        "media_files": [{"filename": f"{post_id}.mp4", "relative_path": f"outputs/{post_id}/media/{post_id}.mp4"}],
+        "source_files": [{"filename": f"{post_id}{extension}"}],
+        "media_files": [{"filename": f"{post_id}{extension}", "relative_path": f"outputs/{post_id}/media/{post_id}{extension}"}],
         "analysis": {"source": "gemini_vision", "error": None, "meta": {"brand": brand, "year": year, "decade": "1990s"}},
         "content": {
             "title": title,
@@ -30,6 +41,7 @@ def write_manifest(folder: Path, *, post_id: str, status: str, title: str, brand
             "hashtags": ["blastfromtheads", brand.lower().replace(" ", "")],
             "details": ["bright logo", "price burst"],
         },
+        "paths": {"caption_path": f"outputs/{post_id}/caption.txt"},
         "publishing": {"workflow_status": status, "selected_providers": ["manual_export"], "providers": {}, "history": []},
     }
     path = folder / "post_manifest.json"
@@ -84,8 +96,21 @@ class ReviewQueueTests(unittest.TestCase):
 
     def test_bulk_update_status_changes_manifest_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            outputs = Path(temp_dir)
-            manifest_path = write_manifest(outputs / "draft-post", post_id="draft-post", status="draft", title="Draft", brand="Sega", year="1991")
+            root = Path(temp_dir)
+            outputs = root / "outputs"
+            manifest_path = write_manifest(
+                outputs / "draft-post",
+                post_id="draft-post",
+                status="draft",
+                title="Draft",
+                brand="Sega",
+                year="1991",
+                extension=".png",
+            )
+            (manifest_path.parent / "caption.txt").write_text("Draft\n\nA specific caption with useful visible details.\n\n#tag\n", encoding="utf-8")
+            media_dir = manifest_path.parent / "media"
+            media_dir.mkdir()
+            (media_dir / "draft-post.png").write_bytes(portrait_png())
 
             count = bulk_update_status([manifest_path], "ready", note="Bulk marked ready")
 

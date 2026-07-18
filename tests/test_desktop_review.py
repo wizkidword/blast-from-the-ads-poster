@@ -47,12 +47,14 @@ class DesktopReviewTests(unittest.TestCase):
         self.assertEqual(label, "[READY] video: 1984 Atari: Arcade Energy")
 
     def test_build_review_context_text_includes_analysis_media_and_history(self) -> None:
-        context = build_review_context_text(self._manifest())
+        context = build_review_context_text(self._manifest(), readiness_text="instagram: READY\n- PASS [caption_length] Caption fits.")
         self.assertIn("Post ID: video-123", context)
         self.assertIn("Analysis source: gemini_vision", context)
         self.assertIn("- raw-ad.mp4 (video/mp4)", context)
         self.assertIn("- neon cabinet", context)
         self.assertIn("Reviewed", context)
+        self.assertIn("Readiness checklist:", context)
+        self.assertIn("caption_length", context)
 
     def test_build_review_editor_state_extracts_editable_fields_and_providers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

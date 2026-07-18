@@ -53,6 +53,7 @@ echo Building standalone executable...
   --hidden-import "requeue" ^
   --hidden-import "recovery_queue" ^
   --hidden-import "recovery_service" ^
+  --hidden-import "readiness" ^
   --hidden-import "review_queue" ^
   --hidden-import "run_ledger" ^
   --hidden-import "run_history" ^

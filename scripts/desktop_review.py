@@ -24,7 +24,7 @@ def build_review_label(manifest: dict) -> str:
     return f"[{status}] {post_type}: {title[:70]}"
 
 
-def build_review_context_text(manifest: dict) -> str:
+def build_review_context_text(manifest: dict, readiness_text: str = "") -> str:
     analysis = manifest.get("analysis", {})
     meta = analysis.get("meta", {})
     source_files = manifest.get("source_files", [])
@@ -58,14 +58,21 @@ def build_review_context_text(manifest: dict) -> str:
         lines.extend(["", "Review history:"])
         for entry in history[-6:]:
             lines.append(f"- {entry.get('timestamp', 'Unknown')} | {entry.get('workflow_status', 'unknown')} | {entry.get('note', '')}")
+    if readiness_text:
+        lines.extend(["", "Readiness checklist:", readiness_text])
     return "\n".join(lines)
 
 
-def build_review_editor_state(manifest: dict, manifest_path: Path, review_preview: str = "") -> ReviewEditorState:
+def build_review_editor_state(
+    manifest: dict,
+    manifest_path: Path,
+    review_preview: str = "",
+    readiness_text: str = "",
+) -> ReviewEditorState:
     content = manifest.get("content", {})
     publishing = manifest.get("publishing", {})
     post_id = manifest.get("post_id", manifest_path.parent.name)
-    context = build_review_context_text(manifest)
+    context = build_review_context_text(manifest, readiness_text=readiness_text)
     context_text = (review_preview + "\n\nContext:\n" + context).strip() if review_preview else context
     return ReviewEditorState(
         selection_text=f"Selected: {post_id}",

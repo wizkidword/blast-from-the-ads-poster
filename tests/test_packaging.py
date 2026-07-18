@@ -44,6 +44,7 @@ class PackagingTests(unittest.TestCase):
             "processing_transaction",
             "recovery_queue",
             "recovery_service",
+            "readiness",
             "review_queue",
             "run_ledger",
             "settings_store",

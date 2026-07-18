@@ -61,13 +61,13 @@ class PublishingTests(unittest.TestCase):
             description="Fresh copy for review.",
             hashtags="#Nabisco, ToyRoundUp",
             selected_providers=["manual_export"],
-            workflow_status=PublishStatus.READY.value,
+            workflow_status=PublishStatus.DRAFT.value,
             note="Saved from test",
         )
 
         self.assertEqual(updated["content"]["title"], "New Hook")
         self.assertEqual(updated["content"]["hashtags"], ["nabisco", "toyroundup"])
-        self.assertEqual(updated["publishing"]["workflow_status"], "ready")
+        self.assertEqual(updated["publishing"]["workflow_status"], "draft")
         self.assertEqual(updated["publishing"]["selected_providers"], ["manual_export"])
         self.assertEqual(updated["publishing"]["history"][-1]["note"], "Saved from test")
 

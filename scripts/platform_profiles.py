@@ -14,6 +14,12 @@ class PlatformProfile:
     max_carousel_items: int
     allowed_extensions: tuple[str, ...]
     require_vertical: bool = False
+    min_aspect_ratio: float | None = None
+    max_aspect_ratio: float | None = None
+    max_file_bytes: int | None = 1_000_000_000
+    max_video_duration_seconds: int | None = None
+    allowed_video_codecs: tuple[str, ...] = ()
+    require_audio: bool = False
 
 
 @dataclass(frozen=True)
@@ -26,10 +32,36 @@ class PlatformValidationResult:
 
 PROFILES = {
     "manual_export": PlatformProfile("manual_export", 10000, 100, 100, (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov")),
-    "instagram": PlatformProfile("instagram", 2200, 30, 10, (".jpg", ".jpeg", ".png", ".mp4"), require_vertical=True),
-    "tiktok": PlatformProfile("tiktok", 2200, 30, 1, (".mp4", ".mov"), require_vertical=True),
+    "instagram": PlatformProfile(
+        "instagram",
+        2200,
+        30,
+        10,
+        (".jpg", ".jpeg", ".png", ".mp4"),
+        require_vertical=True,
+        min_aspect_ratio=0.5,
+        max_aspect_ratio=0.9,
+        max_video_duration_seconds=900,
+        allowed_video_codecs=("h264",),
+    ),
+    "tiktok": PlatformProfile(
+        "tiktok",
+        2200,
+        30,
+        1,
+        (".mp4", ".mov"),
+        require_vertical=True,
+        min_aspect_ratio=0.5,
+        max_aspect_ratio=0.65,
+        max_video_duration_seconds=600,
+        allowed_video_codecs=("h264",),
+    ),
     "facebook": PlatformProfile("facebook", 63206, 100, 80, (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov")),
 }
+
+
+def get_platform_profile(platform: str) -> PlatformProfile | None:
+    return PROFILES.get(platform)
 
 
 def validate_manifest_for_platform(manifest: dict[str, Any], platform: str) -> PlatformValidationResult:
@@ -68,11 +100,19 @@ def validate_manifest_for_platform(manifest: dict[str, Any], platform: str) -> P
 
 def _media_files_for_platform(manifest: dict[str, Any], platform: str) -> list[dict[str, Any]]:
     media_files = [item for item in manifest.get("media_files") or [] if isinstance(item, dict)]
-    if platform == "tiktok" and manifest.get("post_type") == "image_carousel":
+    if manifest.get("post_type") == "image_carousel":
         carousel_videos = [item for item in media_files if item.get("role") == "carousel_video"]
-        if carousel_videos:
+        if platform == "tiktok" and carousel_videos:
             return carousel_videos
+        if platform != "tiktok":
+            return [item for item in media_files if item.get("role") != "carousel_video"]
     return media_files
+
+
+def media_files_for_platform(manifest: dict[str, Any], platform: str) -> list[dict[str, Any]]:
+    """Return the exact ordered assets a profile would ask the user to publish."""
+
+    return _media_files_for_platform(manifest, platform)
 
 
 def format_platform_report(manifest: dict[str, Any], platforms: tuple[str, ...]) -> str:

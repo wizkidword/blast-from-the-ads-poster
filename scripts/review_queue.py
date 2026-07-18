@@ -11,6 +11,11 @@ try:
 except ImportError:
     from scripts.publishing import format_hashtag_block, list_output_manifests, load_manifest, save_manifest, update_manifest_review
 
+try:
+    from readiness import ReadinessReport, readiness_reports_for_manifest
+except ImportError:
+    from scripts.readiness import ReadinessReport, readiness_reports_for_manifest
+
 
 @dataclass(frozen=True)
 class ReviewItem:
@@ -120,10 +125,11 @@ def bulk_update_status(
     *,
     captions_root: Path | None = None,
 ) -> int:
-    count = 0
+    pending: list[tuple[Path, dict[str, Any]]] = []
     for manifest_path in manifest_paths:
         manifest = load_manifest(manifest_path)
         content = manifest.get("content", {})
+        reports = readiness_reports_for_review(manifest_path, manifest) if workflow_status == "ready" else ()
         updated = update_manifest_review(
             manifest,
             title=str(content.get("title") or manifest.get("post_id") or manifest_path.parent.name),
@@ -132,10 +138,20 @@ def bulk_update_status(
             selected_providers=manifest.get("publishing", {}).get("selected_providers", []),
             workflow_status=workflow_status,
             note=note,
+            readiness_reports=reports,
         )
+        pending.append((manifest_path, updated))
+    for manifest_path, updated in pending:
         save_manifest(manifest_path, updated, captions_root=captions_root)
-        count += 1
-    return count
+    return len(pending)
+
+
+def readiness_reports_for_review(manifest_path: Path, manifest: dict[str, Any]) -> tuple[ReadinessReport, ...]:
+    """Use selected destinations, with manual export as the conservative default."""
+
+    providers = manifest.get("publishing", {}).get("selected_providers", [])
+    platforms = tuple(str(provider) for provider in providers if str(provider).strip()) or ("manual_export",)
+    return readiness_reports_for_manifest(manifest_path, platforms, manifest=manifest)
 
 
 def _search_haystack(item: ReviewItem) -> str:

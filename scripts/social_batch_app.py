@@ -105,9 +105,14 @@ except ImportError:
     from scripts.recovery_service import build_retry_plan, execute_retry_plan, filter_retry_plan
 
 try:
-    from review_queue import bulk_update_status, format_review_preview, query_review_items
+    from review_queue import bulk_update_status, format_review_preview, query_review_items, readiness_reports_for_review
 except ImportError:
-    from scripts.review_queue import bulk_update_status, format_review_preview, query_review_items
+    from scripts.review_queue import bulk_update_status, format_review_preview, query_review_items, readiness_reports_for_review
+
+try:
+    from readiness import format_readiness_reports
+except ImportError:
+    from scripts.readiness import format_readiness_reports
 
 try:
     from settings_store import save_settings
@@ -642,7 +647,8 @@ class SocialBatchApp:
         self.selected_manifest_path = manifest_path
         review_item = self._find_review_item(manifest_path)
         preview = format_review_preview(review_item) if review_item else ""
-        state = build_review_editor_state(manifest, manifest_path, review_preview=preview)
+        readiness_text = format_readiness_reports(readiness_reports_for_review(manifest_path, manifest))
+        state = build_review_editor_state(manifest, manifest_path, review_preview=preview, readiness_text=readiness_text)
 
         self.review_selection_var.set(state.selection_text)
         self.review_meta_var.set(state.meta_text)
@@ -783,12 +789,16 @@ class SocialBatchApp:
         confirmed = messagebox.askyesno("Bulk mark ready", f"Mark all {len(self.review_items)} visible post(s) as ready?")
         if not confirmed:
             return
-        count = bulk_update_status(
-            [item.manifest_path for item in self.review_items],
-            PublishStatus.READY.value,
-            "Bulk marked ready in review queue.",
-            captions_root=self.context.captions_dir,
-        )
+        try:
+            count = bulk_update_status(
+                [item.manifest_path for item in self.review_items],
+                PublishStatus.READY.value,
+                "Bulk marked ready in review queue.",
+                captions_root=self.context.captions_dir,
+            )
+        except Exception as exc:
+            messagebox.showerror("Readiness blocked", str(exc))
+            return
         self.log(f"Bulk marked {count} visible post(s) ready.")
         self.refresh_review_queue(select_path=self.selected_manifest_path)
 
@@ -908,15 +918,20 @@ class SocialBatchApp:
             messagebox.showerror("Missing description", "Add a description before saving the review.")
             return
 
-        updated_manifest = update_manifest_review(
-            manifest,
-            title=title,
-            description=description,
-            hashtags=hashtags,
-            selected_providers=selected_providers,
-            workflow_status=next_status,
-            note=f"Updated in desktop review queue with {len(normalize_hashtag_list(hashtags))} hashtag(s).",
-        )
+        try:
+            updated_manifest = update_manifest_review(
+                manifest,
+                title=title,
+                description=description,
+                hashtags=hashtags,
+                selected_providers=selected_providers,
+                workflow_status=next_status,
+                note=f"Updated in desktop review queue with {len(normalize_hashtag_list(hashtags))} hashtag(s).",
+                readiness_validator=lambda candidate: readiness_reports_for_review(self.selected_manifest_path, candidate),
+            )
+        except Exception as exc:
+            messagebox.showerror("Readiness blocked", str(exc))
+            return
 
         try:
             save_manifest(self.selected_manifest_path, updated_manifest, captions_root=self.context.captions_dir)
