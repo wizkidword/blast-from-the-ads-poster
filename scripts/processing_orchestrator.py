@@ -15,6 +15,11 @@ try:
 except ImportError:
     from scripts.publishing import PublishStatus
 
+try:
+    from safe_paths import resolve_existing_under, resolve_output_under
+except ImportError:
+    from scripts.safe_paths import resolve_existing_under, resolve_output_under
+
 
 def process_video_file(file_path: Path, api, dry_run: bool = False) -> Dict:
     print(f"Processing video: {file_path.name}")
@@ -54,7 +59,7 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
 
     caption_payload = api.build_caption_payload(meta, file_path.name)
     caption_text = api.build_caption_block(meta, file_path.name)
-    legacy_caption_path = api.CAPTIONS_DIR / f"{file_path.stem}.txt"
+    legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, f"{file_path.stem}.txt")
 
     if dry_run:
         print("   DRY RUN: manifest, caption, and file move skipped")
@@ -64,14 +69,16 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
         processed_media_path = None
     else:
         post_id, output_dir = api.create_output_workspace("video", [file_path])
-        caption_path = output_dir / "caption.txt"
+        caption_path = resolve_output_under(api.OUTPUTS_DIR, output_dir / "caption.txt")
+        caption_path = resolve_output_under(api.OUTPUTS_DIR, caption_path)
         caption_path.write_text(caption_text, encoding="utf-8")
+        legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, legacy_caption_path)
         legacy_caption_path.write_text(caption_text, encoding="utf-8")
         processed_media_path = api.handle_video_conversion_and_move(file_path, api.instagram_video_destination(file_path))
         if processed_media_path is None:
-            caption_path.unlink(missing_ok=True)
-            legacy_caption_path.unlink(missing_ok=True)
-            shutil.rmtree(output_dir, ignore_errors=True)
+            _unlink_if_exists(api.OUTPUTS_DIR, caption_path)
+            _unlink_if_exists(api.CAPTIONS_DIR, legacy_caption_path)
+            _rmtree_if_exists(api.OUTPUTS_DIR, output_dir)
             api.cleanup_temp_files(frame_paths)
             return {
                 "type": "video",
@@ -82,7 +89,12 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
                 "analysis_error": analysis_error,
                 "frames_used": len(frame_paths),
             }
-        manifest_media_path = api.copy_processed_media_to_output(processed_media_path, output_dir)
+        manifest_media_path = api.copy_processed_media_to_output(
+            processed_media_path,
+            output_dir,
+            processed_root=api.PROCESSED_DIR,
+            outputs_root=api.OUTPUTS_DIR,
+        )
         manifest_path = api.write_post_manifest(
             post_id=post_id,
             output_dir=output_dir,
@@ -156,7 +168,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
 
     caption_payload = api.build_carousel_caption_payload(meta)
     caption_text = api.build_carousel_caption_block(meta, image_files)
-    legacy_caption_path = api.CAPTIONS_DIR / f"carousel-{int(time.time())}-image-batch.txt"
+    legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, f"carousel-{int(time.time())}-image-batch.txt")
 
     if dry_run:
         print("   DRY RUN: manifest, carousel caption, and file move skipped")
@@ -166,7 +178,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
         processed_files: List[Path] = []
     else:
         post_id, output_dir = api.create_output_workspace("image-carousel", image_files)
-        caption_path = output_dir / "caption.txt"
+        caption_path = resolve_output_under(api.OUTPUTS_DIR, output_dir / "caption.txt")
         processed_files = []
         manifest_files = []
         carousel_video_path: Optional[Path] = None
@@ -177,7 +189,14 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
                 if processed_path is None:
                     raise RuntimeError(f"Image processing did not produce an output for {file_path.name}")
                 processed_files.append(processed_path)
-                manifest_files.append(api.copy_processed_media_to_output(processed_path, output_dir))
+                manifest_files.append(
+                    api.copy_processed_media_to_output(
+                        processed_path,
+                        output_dir,
+                        processed_root=api.PROCESSED_DIR,
+                        outputs_root=api.OUTPUTS_DIR,
+                    )
+                )
 
             carousel_video_path = api.handle_carousel_video_creation(
                 processed_files,
@@ -186,9 +205,19 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
             )
             if carousel_video_path is None:
                 raise RuntimeError("Carousel video creation did not produce an output")
-            manifest_files.append(api.copy_processed_media_to_output(carousel_video_path, output_dir, Path("tiktok") / "media"))
+            manifest_files.append(
+                api.copy_processed_media_to_output(
+                    carousel_video_path,
+                    output_dir,
+                    Path("tiktok") / "media",
+                    processed_root=api.PROCESSED_DIR,
+                    outputs_root=api.OUTPUTS_DIR,
+                )
+            )
 
+            caption_path = resolve_output_under(api.OUTPUTS_DIR, caption_path)
             caption_path.write_text(caption_text, encoding="utf-8")
+            legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, legacy_caption_path)
             legacy_caption_path.write_text(caption_text, encoding="utf-8")
             manifest_path = api.write_post_manifest(
                 post_id=post_id,
@@ -209,15 +238,17 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
                 legacy_caption_path=legacy_caption_path,
             )
         except Exception as exc:
-            caption_path.unlink(missing_ok=True)
-            legacy_caption_path.unlink(missing_ok=True)
+            _unlink_if_exists(api.OUTPUTS_DIR, caption_path)
+            _unlink_if_exists(api.CAPTIONS_DIR, legacy_caption_path)
             if carousel_video_path and carousel_video_path.exists():
-                carousel_video_path.unlink(missing_ok=True)
+                _unlink_if_exists(api.PROCESSED_DIR, carousel_video_path)
             for processed_path in processed_files:
                 if processed_path.exists():
-                    rollback_destination = unique_destination(api.INBOX_DIR / processed_path.name)
-                    shutil.move(str(processed_path), rollback_destination)
-            shutil.rmtree(output_dir, ignore_errors=True)
+                    safe_processed = resolve_existing_under(api.PROCESSED_DIR, processed_path)
+                    rollback_destination = unique_destination(resolve_output_under(api.INBOX_DIR, safe_processed.name))
+                    rollback_destination = resolve_output_under(api.INBOX_DIR, rollback_destination)
+                    shutil.move(str(safe_processed), rollback_destination)
+            _rmtree_if_exists(api.OUTPUTS_DIR, output_dir)
             print(f"   ERROR: Failed to finish image carousel batch: {exc}")
             return {
                 "type": "image_carousel",
@@ -254,3 +285,15 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
         "publish_status": PublishStatus.READY.value,
         "providers": api.list_provider_names(),
     }
+
+
+def _unlink_if_exists(root: Path, path: Path) -> None:
+    candidate = resolve_output_under(root, path)
+    if candidate.exists():
+        resolve_existing_under(root, candidate).unlink(missing_ok=True)
+
+
+def _rmtree_if_exists(root: Path, path: Path) -> None:
+    candidate = resolve_output_under(root, path)
+    if candidate.exists():
+        shutil.rmtree(resolve_existing_under(root, candidate))

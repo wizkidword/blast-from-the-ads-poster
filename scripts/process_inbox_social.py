@@ -157,9 +157,14 @@ except ImportError:
     )
 
 try:
-    from media_artifacts import cleanup_temp_files, extract_video_frames as _extract_video_frames
+    from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
 except ImportError:
-    from scripts.media_artifacts import cleanup_temp_files, extract_video_frames as _extract_video_frames
+    from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
+try:
+    from media_artifacts import cleanup_temp_files as _cleanup_temp_files, extract_video_frames as _extract_video_frames
+except ImportError:
+    from scripts.media_artifacts import cleanup_temp_files as _cleanup_temp_files, extract_video_frames as _extract_video_frames
 
 try:
     from processing_orchestrator import (
@@ -221,14 +226,26 @@ def ensure_dirs() -> None:
 
 
 def list_inbox_files(limit: Optional[int] = None) -> List[Path]:
-    files = [path for path in sorted(INBOX_DIR.iterdir()) if is_supported_media_file(path)]
+    files = []
+    for path in sorted(INBOX_DIR.iterdir()):
+        try:
+            safe_path = resolve_existing_under(INBOX_DIR, path)
+        except UnsafePathError:
+            continue
+        if is_supported_media_file(safe_path):
+            files.append(safe_path)
     if limit:
         files = files[:limit]
     return files
 
 
 def extract_video_frames(video_path: Path, seconds_list: Optional[List[int]] = None) -> List[Path]:
-    return _extract_video_frames(video_path, TEMP_DIR, seconds_list=seconds_list)
+    safe_video_path = resolve_existing_under(INBOX_DIR, video_path)
+    return _extract_video_frames(safe_video_path, TEMP_DIR, seconds_list=seconds_list)
+
+
+def cleanup_temp_files(paths: List[Path]) -> None:
+    _cleanup_temp_files(paths, TEMP_DIR)
 
 
 def relative_to_base(path: Path) -> str:
@@ -282,23 +299,40 @@ def write_post_manifest(
         analysis_error=analysis_error,
         caption_path=caption_path,
         legacy_caption_path=legacy_caption_path,
-        base_dir=BASE_DIR,
+        base_dir=OUTPUTS_DIR.parent,
         inbox_dir=INBOX_DIR,
+        legacy_caption_root=CAPTIONS_DIR,
     )
 
 
-def instagram_video_destination(file_path: Path, processed_dir: Path = PROCESSED_DIR) -> Path:
-    return processed_dir / f"{file_path.stem}.mp4"
+def instagram_video_destination(file_path: Path, processed_dir: Path | None = None) -> Path:
+    processed_dir = processed_dir or PROCESSED_DIR
+    name = require_plain_filename(f"{file_path.stem}.mp4")
+    return resolve_output_under(processed_dir, name)
 
 
-def carousel_video_destination(post_id: str, processed_dir: Path = PROCESSED_DIR) -> Path:
-    return processed_dir / f"{post_id}-carousel-video.mp4"
+def carousel_video_destination(post_id: str, processed_dir: Path | None = None) -> Path:
+    processed_dir = processed_dir or PROCESSED_DIR
+    name = require_plain_filename(f"{post_id}-carousel-video.mp4")
+    return resolve_output_under(processed_dir, name)
 
 
-def handle_image_conversion_and_move(file_path: Path, destination: Path, dry_run: bool = False) -> Optional[Path]:
+def handle_image_conversion_and_move(
+    file_path: Path,
+    destination: Path,
+    dry_run: bool = False,
+    *,
+    inbox_root: Path | None = None,
+    processed_root: Path | None = None,
+) -> Optional[Path]:
     if dry_run:
         print("   DRY RUN: image move and conversion skipped")
         return None
+
+    inbox_root = inbox_root or INBOX_DIR
+    processed_root = processed_root or PROCESSED_DIR
+    file_path = resolve_existing_under(inbox_root, file_path)
+    destination = resolve_output_under(processed_root, destination)
 
     dims = get_media_dimensions(file_path)
     needs_convert = True
@@ -307,41 +341,71 @@ def handle_image_conversion_and_move(file_path: Path, destination: Path, dry_run
         needs_convert = not (width == 1080 and height == 1350)
 
     if needs_convert and convert_image_to_instagram(file_path, destination):
+        file_path = resolve_existing_under(inbox_root, file_path)
         file_path.unlink(missing_ok=True)
         print("   Image converted to 1080x1350")
         return destination
 
+    file_path = resolve_existing_under(inbox_root, file_path)
+    destination = resolve_output_under(processed_root, destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(file_path), destination)
     print("   Image moved without conversion" if not needs_convert else "   WARNING: Image conversion failed, moved original")
     return destination
 
 
-def handle_video_conversion_and_move(file_path: Path, destination: Path, dry_run: bool = False) -> Optional[Path]:
+def handle_video_conversion_and_move(
+    file_path: Path,
+    destination: Path,
+    dry_run: bool = False,
+    *,
+    inbox_root: Path | None = None,
+    processed_root: Path | None = None,
+) -> Optional[Path]:
     if dry_run:
         print("   DRY RUN: caption and file move skipped")
         return None
 
+    inbox_root = inbox_root or INBOX_DIR
+    processed_root = processed_root or PROCESSED_DIR
+    file_path = resolve_existing_under(inbox_root, file_path)
+    destination = resolve_output_under(processed_root, destination)
+
     if convert_video_to_vertical(file_path, destination):
+        file_path = resolve_existing_under(inbox_root, file_path)
         file_path.unlink(missing_ok=True)
         print(f"   Video converted to {INSTAGRAM_VIDEO_WIDTH}x{INSTAGRAM_VIDEO_HEIGHT}")
         return destination
 
     if destination.exists():
+        destination = resolve_existing_under(processed_root, destination)
         destination.unlink(missing_ok=True)
     print("   ERROR: Video conversion failed; original left in inbox")
     return None
 
 
-def handle_carousel_video_creation(image_paths: List[Path], destination: Path, dry_run: bool = False) -> Optional[Path]:
+def handle_carousel_video_creation(
+    image_paths: List[Path],
+    destination: Path,
+    dry_run: bool = False,
+    *,
+    processed_root: Path | None = None,
+) -> Optional[Path]:
     if dry_run:
         print("   DRY RUN: carousel video creation skipped")
         return None
+
+    processed_root = processed_root or PROCESSED_DIR
+    image_paths = [resolve_existing_under(processed_root, path) for path in image_paths]
+    destination = resolve_output_under(processed_root, destination)
 
     if create_carousel_video_from_images(image_paths, destination):
         print("   Carousel video created for TikTok")
         return destination
 
-    destination.unlink(missing_ok=True)
+    if destination.exists():
+        destination = resolve_existing_under(processed_root, destination)
+        destination.unlink(missing_ok=True)
     print("   ERROR: Carousel video creation failed")
     return None
 
@@ -375,7 +439,19 @@ def run_inbox_processing(limit: Optional[int] = None, dry_run: bool = False, tar
         ]
 
     if target_files is not None:
-        files = [Path(path) for path in target_files if Path(path).exists() and is_supported_media_file(Path(path))]
+        try:
+            files = [resolve_existing_under(INBOX_DIR, Path(path)) for path in target_files]
+        except UnsafePathError as exc:
+            print(f"ERROR: Unsafe retry path refused: {exc}")
+            return [
+                {
+                    "type": "run",
+                    "status": "failed",
+                    "error": "unsafe_target_path",
+                    "message": str(exc),
+                }
+            ]
+        files = [path for path in files if is_supported_media_file(path)]
         files = sorted(files)
         if limit:
             files = files[:limit]

@@ -12,6 +12,11 @@ try:
 except ImportError:
     from scripts.media_rules import is_supported_media_file, split_media_files, unique_destination
 
+try:
+    from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+except ImportError:
+    from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
 
 @dataclass
 class RequeuePlan:
@@ -37,10 +42,16 @@ class FailedRunRetryPlan:
 
 
 def collect_requeue_plan(outputs_dir: Path, processed_dir: Path) -> RequeuePlan:
-    output_folders = [path for path in outputs_dir.iterdir() if path.is_dir() and (path / "post_manifest.json").exists()]
+    outputs_dir = resolve_existing_under(outputs_dir, outputs_dir)
+    processed_dir = resolve_existing_under(processed_dir, processed_dir)
+    output_folders = [
+        resolve_existing_under(outputs_dir, path)
+        for path in outputs_dir.iterdir()
+        if path.is_dir() and (path / "post_manifest.json").exists()
+    ]
     generated_names = _generated_media_names(output_folders)
     processed_files = [
-        path
+        resolve_existing_under(processed_dir, path)
         for path in processed_dir.iterdir()
         if path.is_file() and is_supported_media_file(path) and path.name.lower() not in generated_names
     ]
@@ -52,6 +63,7 @@ def collect_requeue_plan(outputs_dir: Path, processed_dir: Path) -> RequeuePlan:
         media_dir = folder / "media"
         if not media_dir.exists():
             continue
+        media_dir = resolve_existing_under(folder, media_dir)
         for path in media_dir.iterdir():
             if not path.is_file() or not is_supported_media_file(path):
                 continue
@@ -59,7 +71,7 @@ def collect_requeue_plan(outputs_dir: Path, processed_dir: Path) -> RequeuePlan:
             if key in seen_output_names:
                 continue
             seen_output_names.add(key)
-            output_media_files.append(path)
+            output_media_files.append(resolve_existing_under(folder, path))
 
     all_files = output_media_files + processed_files
     video_files, image_files = split_media_files(all_files)
@@ -75,9 +87,10 @@ def collect_requeue_plan(outputs_dir: Path, processed_dir: Path) -> RequeuePlan:
 
 def collect_failed_run_retry_plan(log_path: Path, inbox_dir: Path) -> FailedRunRetryPlan:
     try:
-        records = json.loads(log_path.read_text(encoding="utf-8"))
-    except Exception:
-        records = []
+        safe_log_path = resolve_existing_under(log_path.parent, log_path)
+        records = json.loads(safe_log_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError, UnsafePathError) as exc:
+        raise ValueError(f"Could not read failed-run ledger safely: {exc}") from exc
 
     retry_files: list[Path] = []
     missing: list[str] = []
@@ -86,13 +99,14 @@ def collect_failed_run_retry_plan(log_path: Path, inbox_dir: Path) -> FailedRunR
         if not isinstance(record, dict) or str(record.get("status", "")).lower() != "failed":
             continue
         for name in _record_file_names(record):
+            name = require_plain_filename(name)
             key = name.lower()
             if key in seen:
                 continue
             seen.add(key)
-            candidate = inbox_dir / name
+            candidate = resolve_output_under(inbox_dir, name)
             if candidate.exists():
-                retry_files.append(candidate)
+                retry_files.append(resolve_existing_under(inbox_dir, candidate))
             else:
                 missing.append(name)
     return FailedRunRetryPlan(retry_files=tuple(retry_files), missing_files=tuple(missing))
@@ -103,12 +117,22 @@ def requeue_output_workspace(
     inbox_dir: Path,
     processed_dir: Path,
     base_dir: Path,
+    captions_dir: Path | None = None,
 ) -> WorkspaceRequeueResult:
-    manifest_path = workspace_dir / "post_manifest.json"
+    outputs_dir = base_dir / "outputs"
+    workspace_dir = resolve_existing_under(outputs_dir, workspace_dir)
+    inbox_dir = resolve_existing_under(inbox_dir, inbox_dir)
+    processed_dir = resolve_existing_under(processed_dir, processed_dir)
+    captions_candidate = captions_dir or (base_dir / "captions")
+    captions_dir = resolve_existing_under(captions_candidate, captions_candidate) if captions_candidate.exists() else None
+    manifest_path = resolve_existing_under(workspace_dir, workspace_dir / "post_manifest.json")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        manifest = {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Could not validate workspace manifest: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise ValueError("Could not validate workspace manifest: expected a JSON object")
+    _validate_workspace_manifest(manifest, base_dir, captions_dir)
 
     moved_files: list[Path] = []
     removed_caption_paths: list[Path] = []
@@ -116,16 +140,20 @@ def requeue_output_workspace(
     for source in _workspace_media_sources(workspace_dir, processed_dir, manifest):
         if not source.exists():
             continue
-        destination = unique_destination(inbox_dir / source.name)
+        source_root = processed_dir if _is_same_or_under(source, processed_dir) else workspace_dir
+        source = resolve_existing_under(source_root, source)
+        destination = unique_destination(resolve_output_under(inbox_dir, require_plain_filename(source.name)))
+        destination = resolve_output_under(inbox_dir, destination)
         shutil.move(str(source), destination)
         moved_files.append(destination)
 
-    for caption_path in _workspace_caption_paths(workspace_dir, base_dir, manifest):
+    for caption_path, caption_root in _workspace_caption_paths(workspace_dir, base_dir, captions_dir, manifest):
         if caption_path.exists():
-            caption_path.unlink()
-            removed_caption_paths.append(caption_path)
+            safe_caption_path = resolve_existing_under(caption_root, caption_path)
+            safe_caption_path.unlink()
+            removed_caption_paths.append(safe_caption_path)
 
-    shutil.rmtree(workspace_dir, ignore_errors=True)
+    shutil.rmtree(resolve_existing_under(outputs_dir, workspace_dir))
     return WorkspaceRequeueResult(
         moved_files=tuple(moved_files),
         removed_workspace=workspace_dir,
@@ -139,11 +167,11 @@ def _workspace_media_sources(workspace_dir: Path, processed_dir: Path, manifest:
         if _is_generated_media_item(item):
             continue
         if isinstance(item, dict) and item.get("filename"):
-            names.append(str(item["filename"]))
+            names.append(require_plain_filename(str(item["filename"])))
 
     media_dir = workspace_dir / "media"
     if not names and media_dir.exists():
-        names = [path.name for path in media_dir.iterdir() if path.is_file() and is_supported_media_file(path)]
+        names = [require_plain_filename(path.name) for path in media_dir.iterdir() if path.is_file() and is_supported_media_file(path)]
 
     sources: list[Path] = []
     seen: set[str] = set()
@@ -152,12 +180,12 @@ def _workspace_media_sources(workspace_dir: Path, processed_dir: Path, manifest:
         if key in seen:
             continue
         seen.add(key)
-        primary = processed_dir / name
-        shadow = media_dir / name
+        primary = resolve_output_under(processed_dir, name)
+        shadow = resolve_output_under(media_dir, name)
         if primary.exists():
-            sources.append(primary)
+            sources.append(resolve_existing_under(processed_dir, primary))
         elif shadow.exists():
-            sources.append(shadow)
+            sources.append(resolve_existing_under(workspace_dir, shadow))
     return sources
 
 
@@ -170,7 +198,7 @@ def _generated_media_names(output_folders: list[Path]) -> set[str]:
             continue
         for item in manifest.get("media_files", []):
             if _is_generated_media_item(item) and item.get("filename"):
-                names.add(str(item["filename"]).lower())
+                names.add(require_plain_filename(str(item["filename"])).lower())
     return names
 
 
@@ -179,27 +207,38 @@ def _delete_generated_workspace_media(workspace_dir: Path, processed_dir: Path, 
     for item in manifest.get("media_files", []):
         if not _is_generated_media_item(item) or not item.get("filename"):
             continue
-        name = str(item["filename"])
-        (processed_dir / name).unlink(missing_ok=True)
-        (media_dir / name).unlink(missing_ok=True)
+        name = require_plain_filename(str(item["filename"]))
+        processed_path = resolve_output_under(processed_dir, name)
+        workspace_path = resolve_output_under(media_dir, name)
+        if processed_path.exists():
+            resolve_existing_under(processed_dir, processed_path).unlink(missing_ok=True)
+        if workspace_path.exists():
+            resolve_existing_under(workspace_dir, workspace_path).unlink(missing_ok=True)
 
 
 def _is_generated_media_item(item: object) -> bool:
     return isinstance(item, dict) and item.get("role") == "carousel_video"
 
 
-def _workspace_caption_paths(workspace_dir: Path, base_dir: Path, manifest: dict) -> list[Path]:
-    paths = [workspace_dir / "caption.txt"]
+def _workspace_caption_paths(
+    workspace_dir: Path,
+    base_dir: Path,
+    captions_dir: Path | None,
+    manifest: dict,
+) -> list[tuple[Path, Path]]:
+    paths: list[tuple[Path, Path]] = [(resolve_output_under(workspace_dir, "caption.txt"), workspace_dir)]
     legacy_caption_path = manifest.get("paths", {}).get("legacy_caption_path")
     if legacy_caption_path:
-        paths.append(base_dir / str(legacy_caption_path))
-    unique: list[Path] = []
+        if captions_dir is None:
+            raise UnsafePathError("Configured captions root is unavailable for legacy caption cleanup")
+        paths.append((_resolve_legacy_caption_path(base_dir, captions_dir, str(legacy_caption_path)), captions_dir))
+    unique: list[tuple[Path, Path]] = []
     seen: set[str] = set()
-    for path in paths:
+    for path, root in paths:
         key = str(path.resolve() if path.exists() else path).lower()
         if key not in seen:
             seen.add(key)
-            unique.append(path)
+            unique.append((path, root))
     return unique
 
 
@@ -210,3 +249,36 @@ def _record_file_names(record: dict) -> list[str]:
     if record.get("file"):
         return [str(record["file"])]
     return []
+
+
+def _validate_workspace_manifest(manifest: dict, base_dir: Path, captions_dir: Path | None) -> None:
+    for item in manifest.get("media_files", []):
+        if isinstance(item, dict) and item.get("filename"):
+            require_plain_filename(str(item["filename"]))
+    legacy_caption_path = manifest.get("paths", {}).get("legacy_caption_path")
+    if legacy_caption_path:
+        if captions_dir is None:
+            raise UnsafePathError("Configured captions root is unavailable for legacy caption cleanup")
+        _resolve_legacy_caption_path(base_dir, captions_dir, str(legacy_caption_path))
+
+
+def _resolve_legacy_caption_path(base_dir: Path, captions_dir: Path, raw_path: str) -> Path:
+    try:
+        project_candidate = resolve_output_under(base_dir, raw_path)
+        try:
+            project_candidate.relative_to(captions_dir.resolve())
+        except ValueError:
+            pass
+        else:
+            return project_candidate
+    except UnsafePathError:
+        pass
+    return resolve_output_under(captions_dir, raw_path)
+
+
+def _is_same_or_under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True

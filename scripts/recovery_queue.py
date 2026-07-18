@@ -14,6 +14,11 @@ try:
 except ImportError:
     from scripts.run_ledger import normalize_run_log
 
+try:
+    from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+except ImportError:
+    from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
 
 @dataclass(frozen=True)
 class RecoveryItem:
@@ -44,20 +49,29 @@ def build_recovery_queue(logs_dir: Path, inbox_dir: Path) -> RecoveryQueue:
         for record in payload.get("records", []):
             if not isinstance(record, dict) or str(record.get("status", "")).lower() != "failed":
                 continue
-            for filename in _record_filenames(record):
+            for raw_filename in _record_filenames(record):
+                try:
+                    filename = require_plain_filename(raw_filename)
+                    path = resolve_output_under(inbox_dir, filename)
+                    available = path.exists() and resolve_existing_under(inbox_dir, path).is_file() and is_supported_media_file(path)
+                    error = _record_error(record)
+                except UnsafePathError as exc:
+                    filename = "unsafe ledger path"
+                    path = inbox_dir
+                    available = False
+                    error = f"Unsafe ledger filename refused: {exc}"
                 key = (run_id, filename.lower())
                 if key in seen:
                     continue
                 seen.add(key)
-                path = inbox_dir / filename
                 items.append(
                     RecoveryItem(
                         filename=filename,
                         path=path,
                         media_type="video" if is_video_file(path) else "image",
                         run_id=run_id,
-                        error=_record_error(record),
-                        available=path.exists() and is_supported_media_file(path),
+                        error=error,
+                        available=available,
                     )
                 )
     available = sum(1 for item in items if item.available)

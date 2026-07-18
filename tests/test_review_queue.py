@@ -68,7 +68,7 @@ class ReviewQueueTests(unittest.TestCase):
             self.assertIn("A specific caption", preview)
             self.assertIn("ready-post.mp4", preview)
             self.assertIn("#blastfromtheads", preview)
-            self.assertEqual(item.manifest_path, manifest_path)
+            self.assertEqual(item.manifest_path, manifest_path.resolve())
 
     def test_query_review_items_can_filter_stale_drafts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

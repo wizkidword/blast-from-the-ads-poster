@@ -65,6 +65,11 @@ except ImportError:
     from scripts.media_rules import is_supported_media_file, unique_destination
 
 try:
+    from safe_paths import require_plain_filename, resolve_output_under
+except ImportError:
+    from scripts.safe_paths import require_plain_filename, resolve_output_under
+
+try:
     from cleanup import CleanupSettings, execute_cleanup, format_cleanup_plan, plan_cleanup
 except ImportError:
     from scripts.cleanup import CleanupSettings, execute_cleanup, format_cleanup_plan, plan_cleanup
@@ -688,7 +693,13 @@ class SocialBatchApp:
         if not confirmed:
             return
         try:
-            result = requeue_output_workspace(self.selected_manifest_path.parent, INBOX_DIR, PROCESSED_DIR, BASE_DIR)
+            result = requeue_output_workspace(
+                self.selected_manifest_path.parent,
+                INBOX_DIR,
+                PROCESSED_DIR,
+                BASE_DIR,
+                captions_dir=CAPTIONS_DIR,
+            )
         except Exception as exc:
             messagebox.showerror("Requeue failed", f"Could not requeue selected post:\n{exc}")
             return
@@ -701,7 +712,7 @@ class SocialBatchApp:
             messagebox.showinfo("No selection", "Choose a post from the review queue first.")
             return
         try:
-            result = create_posting_pack(self.selected_manifest_path, EXPORTS_DIR)
+            result = create_posting_pack(self.selected_manifest_path, EXPORTS_DIR, captions_root=CAPTIONS_DIR)
         except Exception as exc:
             messagebox.showerror("Export failed", f"Could not create posting pack:\n{exc}")
             return
@@ -715,7 +726,12 @@ class SocialBatchApp:
         confirmed = messagebox.askyesno("Bulk mark ready", f"Mark all {len(self.review_items)} visible post(s) as ready?")
         if not confirmed:
             return
-        count = bulk_update_status([item.manifest_path for item in self.review_items], PublishStatus.READY.value, "Bulk marked ready in review queue.")
+        count = bulk_update_status(
+            [item.manifest_path for item in self.review_items],
+            PublishStatus.READY.value,
+            "Bulk marked ready in review queue.",
+            captions_root=CAPTIONS_DIR,
+        )
         self.log(f"Bulk marked {count} visible post(s) ready.")
         self.refresh_review_queue(select_path=self.selected_manifest_path)
 
@@ -824,7 +840,7 @@ class SocialBatchApp:
         )
 
         try:
-            save_manifest(self.selected_manifest_path, updated_manifest)
+            save_manifest(self.selected_manifest_path, updated_manifest, captions_root=CAPTIONS_DIR)
         except Exception as exc:
             messagebox.showerror("Save failed", f"Could not save review changes:\n{exc}")
             return
@@ -854,7 +870,12 @@ class SocialBatchApp:
             if not is_supported_media_file(source):
                 skipped += 1
                 continue
-            destination = self._unique_destination(INBOX_DIR / source.name)
+            try:
+                destination = self._unique_destination(resolve_output_under(INBOX_DIR, require_plain_filename(source.name)))
+                destination = resolve_output_under(INBOX_DIR, destination)
+            except ValueError:
+                skipped += 1
+                continue
             shutil.copy2(source, destination)
             copied += 1
 
@@ -891,7 +912,7 @@ class SocialBatchApp:
         if not confirmed:
             return
 
-        result = execute_requeue_plan(plan, INBOX_DIR, CAPTIONS_DIR, BASE_DIR)
+        result = execute_requeue_plan(plan, INBOX_DIR, CAPTIONS_DIR, BASE_DIR, processed_dir=PROCESSED_DIR)
 
         self.refresh_status()
         self.refresh_review_queue()
