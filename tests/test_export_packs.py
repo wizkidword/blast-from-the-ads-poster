@@ -13,6 +13,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from export_packs import create_posting_pack  # noqa: E402
+from safe_paths import UnsafePathError  # noqa: E402
 
 
 class ExportPackTests(unittest.TestCase):
@@ -71,6 +72,34 @@ class ExportPackTests(unittest.TestCase):
 
             self.assertTrue((result.pack_dir / "platforms" / "instagram-notes.txt").exists())
             self.assertTrue((result.pack_dir / "platforms" / "facebook-caption.txt").exists())
+
+    def test_unsafe_manifest_media_path_preserves_existing_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "outputs" / "video-abc"
+            workspace.mkdir(parents=True)
+            outside = root / "outside.mp4"
+            outside.write_bytes(b"outside")
+            manifest_path = workspace / "post_manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "post_id": "video-abc",
+                        "media_files": [{"filename": "outside.mp4", "relative_path": "../outside.mp4"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            old_pack = root / "exports" / "posting-packs" / "video-abc"
+            old_pack.mkdir(parents=True)
+            marker = old_pack / "keep.txt"
+            marker.write_text("keep", encoding="utf-8")
+
+            with self.assertRaises(UnsafePathError):
+                create_posting_pack(manifest_path, root / "exports")
+
+            self.assertTrue(outside.exists())
+            self.assertTrue(marker.exists())
 
 
 if __name__ == "__main__":

@@ -11,6 +11,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+try:
+    from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+except ImportError:
+    from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -172,8 +177,12 @@ def list_output_manifests(outputs_dir: Path) -> List[Path]:
 
     for path in outputs_dir.iterdir():
         manifest_path = path / "post_manifest.json"
-        if path.is_dir() and manifest_path.exists():
-            manifests.append(manifest_path)
+        if not path.is_dir() or not manifest_path.exists():
+            continue
+        try:
+            manifests.append(resolve_existing_under(outputs_dir, manifest_path))
+        except UnsafePathError:
+            continue
 
     manifests.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     return manifests
@@ -229,6 +238,7 @@ def ensure_manifest_defaults(manifest: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_manifest(manifest_path: Path) -> Dict[str, Any]:
+    manifest_path, _, _ = _manifest_roots(manifest_path, require_existing=True)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     return ensure_manifest_defaults(manifest)
 
@@ -246,23 +256,33 @@ def build_caption_export(manifest: Dict[str, Any]) -> str:
 """
 
 
-def save_manifest(manifest_path: Path, manifest: Dict[str, Any]) -> None:
+def save_manifest(manifest_path: Path, manifest: Dict[str, Any], *, captions_root: Path | None = None) -> None:
+    manifest_path, outputs_root, project_root = _manifest_roots(manifest_path, require_existing=False)
     manifest = ensure_manifest_defaults(manifest)
     manifest["updated_at"] = utc_now_iso()
     manifest["content"]["caption_text"] = build_caption_export(manifest)
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    project_root = manifest_path.parent.parent.parent
     caption_path = manifest.get("paths", {}).get("caption_path")
+    resolved_caption_path: Path | None = None
     if caption_path:
-        resolved_caption_path = project_root / caption_path
-        resolved_caption_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_caption_path.write_text(manifest["content"]["caption_text"], encoding="utf-8")
+        resolved_caption_path = resolve_output_under(project_root, str(caption_path))
 
     legacy_caption_path = manifest.get("paths", {}).get("legacy_caption_path")
+    resolved_legacy_path: Path | None = None
     if legacy_caption_path:
-        resolved_legacy_path = project_root / legacy_caption_path
+        resolved_legacy_path = _resolve_legacy_caption_path(project_root, captions_root, str(legacy_caption_path))
+
+    # Validate all manifest-derived destinations before changing any persisted
+    # state.  An unsafe path therefore leaves the manifest and captions intact.
+    manifest_path = resolve_output_under(outputs_root, manifest_path)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    if resolved_caption_path:
+        resolved_caption_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_caption_path = resolve_output_under(project_root, resolved_caption_path)
+        resolved_caption_path.write_text(manifest["content"]["caption_text"], encoding="utf-8")
+    if resolved_legacy_path:
         resolved_legacy_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_legacy_path = _resolve_legacy_caption_path(project_root, captions_root, str(legacy_caption_path))
         resolved_legacy_path.write_text(manifest["content"]["caption_text"], encoding="utf-8")
 
 
@@ -324,3 +344,44 @@ def record_provider_audit(
     provider_state["updated_at"] = utc_now_iso()
     manifest["updated_at"] = utc_now_iso()
     return manifest
+
+
+def _manifest_roots(manifest_path: Path, *, require_existing: bool) -> tuple[Path, Path, Path]:
+    raw_path = Path(manifest_path)
+    if raw_path.name != "post_manifest.json":
+        raise UnsafePathError("Manifest path must name post_manifest.json")
+    workspace_dir = raw_path.parent
+    outputs_root = workspace_dir.parent
+    project_root = outputs_root.parent
+    safe_workspace = resolve_existing_under(outputs_root, workspace_dir)
+    if safe_workspace.parent != outputs_root.resolve():
+        raise UnsafePathError("Manifest must belong to a direct output workspace")
+    safe_manifest = (
+        resolve_existing_under(safe_workspace, raw_path)
+        if require_existing
+        else resolve_output_under(safe_workspace, raw_path.name)
+    )
+    return safe_manifest, outputs_root.resolve(), project_root.resolve()
+
+
+def _resolve_legacy_caption_path(project_root: Path, captions_root: Path | None, raw_path: str) -> Path:
+    """Resolve both project-relative legacy values and configured caption roots."""
+
+    try:
+        candidate = resolve_output_under(project_root, raw_path)
+        if captions_root is None:
+            return candidate
+        resolved_captions_root = captions_root.resolve(strict=True)
+        try:
+            candidate.relative_to(resolved_captions_root)
+        except ValueError:
+            pass
+        else:
+            return candidate
+    except UnsafePathError:
+        if captions_root is None:
+            raise
+
+    if captions_root is None:
+        raise UnsafePathError("Legacy caption path is outside the approved project root")
+    return resolve_output_under(captions_root, raw_path)

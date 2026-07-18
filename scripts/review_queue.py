@@ -113,7 +113,13 @@ def format_review_preview(item: ReviewItem) -> str:
     return "\n".join(lines)
 
 
-def bulk_update_status(manifest_paths: list[Path], workflow_status: str, note: str) -> int:
+def bulk_update_status(
+    manifest_paths: list[Path],
+    workflow_status: str,
+    note: str,
+    *,
+    captions_root: Path | None = None,
+) -> int:
     count = 0
     for manifest_path in manifest_paths:
         manifest = load_manifest(manifest_path)
@@ -127,7 +133,7 @@ def bulk_update_status(manifest_paths: list[Path], workflow_status: str, note: s
             workflow_status=workflow_status,
             note=note,
         )
-        save_manifest(manifest_path, updated)
+        save_manifest(manifest_path, updated, captions_root=captions_root)
         count += 1
     return count
 

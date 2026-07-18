@@ -10,6 +10,11 @@ try:
 except ImportError:
     from scripts.media_rules import is_supported_media_file, unique_destination
 
+try:
+    from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+except ImportError:
+    from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
 
 @dataclass(frozen=True)
 class RequeueExecutionResult:
@@ -29,53 +34,72 @@ def build_requeue_confirmation(plan) -> str:
     )
 
 
-def execute_requeue_plan(plan, inbox_dir: Path, captions_dir: Path, base_dir: Path) -> RequeueExecutionResult:
+def execute_requeue_plan(
+    plan,
+    inbox_dir: Path,
+    captions_dir: Path,
+    base_dir: Path,
+    processed_dir: Path | None = None,
+) -> RequeueExecutionResult:
+    outputs_dir = resolve_existing_under(base_dir / "outputs", base_dir / "outputs")
+    inbox_dir = resolve_existing_under(inbox_dir, inbox_dir)
+    captions_dir = resolve_existing_under(captions_dir, captions_dir)
+    processed_dir = resolve_existing_under(processed_dir or (base_dir / "!processed"), processed_dir or (base_dir / "!processed"))
     moved = 0
     removed_captions = 0
     removed_workspaces = 0
     output_media_to_move = set(plan.output_media_files)
 
-    for folder in plan.output_folders:
+    for raw_folder in plan.output_folders:
+        folder = resolve_existing_under(outputs_dir, raw_folder)
         media_dir = folder / "media"
         media_files = []
         if media_dir.exists():
-            media_files = [path for path in media_dir.iterdir() if path.is_file() and is_supported_media_file(path)]
+            media_dir = resolve_existing_under(folder, media_dir)
+            media_files = [resolve_existing_under(folder, path) for path in media_dir.iterdir() if path.is_file() and is_supported_media_file(path)]
+
+        manifest_path = resolve_existing_under(folder, folder / "post_manifest.json")
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Could not validate workspace manifest: {exc}") from exc
+        if not isinstance(manifest, dict):
+            raise ValueError("Could not validate workspace manifest: expected a JSON object")
+        _validate_manifest(manifest, base_dir, captions_dir)
 
         for source in media_files:
             if source not in output_media_to_move:
                 continue
-            destination = unique_destination(inbox_dir / source.name)
+            source = resolve_existing_under(folder, source)
+            destination = unique_destination(resolve_output_under(inbox_dir, require_plain_filename(source.name)))
+            destination = resolve_output_under(inbox_dir, destination)
             shutil.move(str(source), destination)
             moved += 1
 
-        caption_path = folder / "caption.txt"
+        caption_path = resolve_output_under(folder, "caption.txt")
         if caption_path.exists():
-            caption_path.unlink()
+            resolve_existing_under(folder, caption_path).unlink()
 
-        manifest_path = folder / "post_manifest.json"
-        if manifest_path.exists():
-            try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except Exception:
-                manifest = {}
-            legacy_caption_path = manifest.get("paths", {}).get("legacy_caption_path")
-            if legacy_caption_path:
-                legacy_caption = base_dir / legacy_caption_path
-                if legacy_caption.exists():
-                    legacy_caption.unlink()
-                    removed_captions += 1
+        legacy_caption_path = manifest.get("paths", {}).get("legacy_caption_path")
+        if legacy_caption_path:
+            legacy_caption = _resolve_legacy_caption_path(base_dir, captions_dir, str(legacy_caption_path))
+            if legacy_caption.exists():
+                resolve_existing_under(captions_dir, legacy_caption).unlink()
+                removed_captions += 1
 
-        shutil.rmtree(folder, ignore_errors=True)
+        shutil.rmtree(resolve_existing_under(outputs_dir, folder))
         removed_workspaces += 1
 
-    for source in plan.processed_files:
-        destination = unique_destination(inbox_dir / source.name)
+    for raw_source in plan.processed_files:
+        source = resolve_existing_under(processed_dir, raw_source)
+        destination = unique_destination(resolve_output_under(inbox_dir, require_plain_filename(source.name)))
+        destination = resolve_output_under(inbox_dir, destination)
         shutil.move(str(source), destination)
         moved += 1
 
-        per_file_caption = captions_dir / f"{source.stem}.txt"
+        per_file_caption = resolve_output_under(captions_dir, require_plain_filename(f"{source.stem}.txt"))
         if per_file_caption.exists():
-            per_file_caption.unlink()
+            resolve_existing_under(captions_dir, per_file_caption).unlink()
             removed_captions += 1
 
     return RequeueExecutionResult(
@@ -83,3 +107,26 @@ def execute_requeue_plan(plan, inbox_dir: Path, captions_dir: Path, base_dir: Pa
         removed_captions=removed_captions,
         removed_workspaces=removed_workspaces,
     )
+
+
+def _validate_manifest(manifest: dict, base_dir: Path, captions_dir: Path) -> None:
+    for item in manifest.get("media_files", []):
+        if isinstance(item, dict) and item.get("filename"):
+            require_plain_filename(str(item["filename"]))
+    legacy_caption_path = manifest.get("paths", {}).get("legacy_caption_path")
+    if legacy_caption_path:
+        _resolve_legacy_caption_path(base_dir, captions_dir, str(legacy_caption_path))
+
+
+def _resolve_legacy_caption_path(base_dir: Path, captions_dir: Path, raw_path: str) -> Path:
+    try:
+        project_candidate = resolve_output_under(base_dir, raw_path)
+        try:
+            project_candidate.relative_to(captions_dir.resolve())
+        except ValueError:
+            pass
+        else:
+            return project_candidate
+    except UnsafePathError:
+        pass
+    return resolve_output_under(captions_dir, raw_path)

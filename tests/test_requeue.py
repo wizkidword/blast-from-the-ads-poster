@@ -12,6 +12,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from requeue import collect_failed_run_retry_plan, collect_requeue_plan, requeue_output_workspace  # noqa: E402
+from safe_paths import UnsafePathError  # noqa: E402
 
 
 class RequeueTests(unittest.TestCase):
@@ -146,6 +147,44 @@ class RequeueTests(unittest.TestCase):
 
             self.assertEqual(result.retry_files, (inbox / "failed.mp4",))
             self.assertEqual(result.missing_files, ("gone.mp4",))
+
+    def test_requeue_refuses_unsafe_manifest_filename_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            inbox = root / "inbox"
+            processed = root / "!processed"
+            captions = root / "captions"
+            workspace = root / "outputs" / "video-123"
+            media = workspace / "media"
+            for directory in (inbox, processed, captions, media):
+                directory.mkdir(parents=True)
+            (processed / "clip.mp4").write_bytes(b"primary")
+            (workspace / "post_manifest.json").write_text(
+                __import__("json").dumps({"media_files": [{"filename": "../outside.mp4"}]}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(UnsafePathError):
+                requeue_output_workspace(workspace, inbox, processed, root, captions)
+
+            self.assertTrue(workspace.exists())
+            self.assertTrue((processed / "clip.mp4").exists())
+            self.assertFalse((inbox / "clip.mp4").exists())
+
+    def test_failed_run_retry_refuses_unsafe_ledger_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            inbox = root / "inbox"
+            logs = root / "logs"
+            inbox.mkdir()
+            logs.mkdir()
+            log_path = logs / "inbox-run-123.json"
+            log_path.write_text(__import__("json").dumps([{"file": "../outside.mp4", "status": "failed"}]), encoding="utf-8")
+
+            with self.assertRaises(UnsafePathError):
+                collect_failed_run_retry_plan(log_path, inbox)
+
+            self.assertFalse((root / "outside.mp4").exists())
 
 
 if __name__ == "__main__":

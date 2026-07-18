@@ -23,12 +23,19 @@ try:
 except ImportError:
     from scripts.publishing import PublishStatus, build_initial_publishing_state, infer_mime_type, utc_now_iso
 
+try:
+    from safe_paths import UnsafePathError, normalize_relative_to, require_plain_filename, resolve_existing_under, resolve_output_under
+except ImportError:
+    from scripts.safe_paths import UnsafePathError, normalize_relative_to, require_plain_filename, resolve_existing_under, resolve_output_under
+
 
 def relative_to_base(path: Path, base_dir: Path) -> str:
     try:
-        return str(path.relative_to(base_dir))
-    except ValueError:
-        return str(path)
+        return normalize_relative_to(base_dir, path)
+    except UnsafePathError:
+        # Legacy caption exports may live in a separately configured approved
+        # root. Their callers validate against that root before mutation.
+        return str(path.resolve())
 
 
 def sanitize_slug(value: str) -> str:
@@ -46,22 +53,26 @@ def build_post_id(post_type: str, file_paths: List[Path]) -> str:
 
 def create_output_workspace(outputs_dir: Path, post_type: str, file_paths: List[Path]) -> Tuple[str, Path]:
     post_id = build_post_id(post_type, file_paths)
-    output_dir = outputs_dir / post_id
+    require_plain_filename(post_id)
+    output_dir = resolve_output_under(outputs_dir, post_id)
     counter = 1
     while output_dir.exists():
-        output_dir = outputs_dir / f"{post_id}-{counter}"
+        output_dir = resolve_output_under(outputs_dir, f"{post_id}-{counter}")
         counter += 1
+    output_dir = resolve_output_under(outputs_dir, output_dir)
     (output_dir / "media").mkdir(parents=True, exist_ok=False)
     return output_dir.name, output_dir
 
 
 def build_media_file_record(path: Path, role: str, order: int, base_dir: Path) -> Dict:
+    path = resolve_existing_under(base_dir, path)
+    filename = require_plain_filename(path.name)
     dimensions = get_media_dimensions(path)
     width = dimensions[0] if dimensions else None
     height = dimensions[1] if dimensions else None
     return {
-        "filename": path.name,
-        "relative_path": relative_to_base(path, base_dir),
+        "filename": filename,
+        "relative_path": normalize_relative_to(base_dir, path),
         "mime_type": infer_mime_type(path),
         "role": role,
         "order": order,
@@ -97,8 +108,13 @@ def write_post_manifest(
     legacy_caption_path: Optional[Path],
     base_dir: Path,
     inbox_dir: Path,
+    legacy_caption_root: Optional[Path] = None,
 ) -> Path:
-    manifest_path = output_dir / "post_manifest.json"
+    output_dir = resolve_existing_under(base_dir / "outputs", output_dir)
+    manifest_path = resolve_output_under(output_dir, "post_manifest.json")
+    caption_path = resolve_existing_under(base_dir, caption_path)
+    if legacy_caption_path:
+        legacy_caption_path = resolve_existing_under(legacy_caption_root or base_dir, legacy_caption_path)
     manifest = {
         "schema_version": 1,
         "post_id": post_id,
@@ -119,7 +135,7 @@ def write_post_manifest(
         "paths": {
             "output_dir": relative_to_base(output_dir, base_dir),
             "manifest_path": relative_to_base(manifest_path, base_dir),
-            "caption_path": relative_to_base(caption_path, base_dir),
+            "caption_path": normalize_relative_to(base_dir, caption_path),
             "legacy_caption_path": relative_to_base(legacy_caption_path, base_dir) if legacy_caption_path else None,
         },
         "analysis": {
@@ -136,12 +152,25 @@ def write_post_manifest(
         },
         "publishing": build_initial_publishing_state(default_status=workflow_status),
     }
+    manifest_path = resolve_output_under(output_dir, manifest_path)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest_path
 
 
-def copy_processed_media_to_output(processed_path: Path, output_dir: Path, media_subdir: Path | str = "media") -> Path:
-    output_media_path = output_dir / media_subdir / processed_path.name
+def copy_processed_media_to_output(
+    processed_path: Path,
+    output_dir: Path,
+    media_subdir: Path | str = "media",
+    *,
+    processed_root: Path,
+    outputs_root: Path,
+) -> Path:
+    processed_path = resolve_existing_under(processed_root, processed_path)
+    output_dir = resolve_existing_under(outputs_root, output_dir)
+    media_subdir_text = str(media_subdir)
+    output_media_path = resolve_output_under(output_dir, Path(media_subdir_text) / require_plain_filename(processed_path.name))
     output_media_path.parent.mkdir(parents=True, exist_ok=True)
+    output_media_path = resolve_output_under(output_dir, output_media_path)
+    processed_path = resolve_existing_under(processed_root, processed_path)
     shutil.copy2(processed_path, output_media_path)
     return output_media_path

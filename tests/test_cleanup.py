@@ -13,7 +13,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from cleanup import CleanupSettings, execute_cleanup, plan_cleanup  # noqa: E402
+from cleanup import CleanupItem, CleanupPlan, CleanupSettings, execute_cleanup, plan_cleanup  # noqa: E402
 
 
 def touch_old(path: Path, age_days: int, now: float) -> None:
@@ -59,6 +59,35 @@ class CleanupTests(unittest.TestCase):
 
             self.assertEqual(result.deleted_count, 1)
             self.assertFalse(old_log.exists())
+
+    def test_execute_cleanup_refuses_base_sibling_and_active_processing_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "project"
+            root.mkdir()
+            sibling = root.parent / f"{root.name}-backup"
+            sibling.mkdir()
+            sibling_file = sibling / "keep.txt"
+            sibling_file.write_text("keep", encoding="utf-8")
+            active_file = root / ".processing" / "active.txt"
+            active_file.parent.mkdir()
+            active_file.write_text("active", encoding="utf-8")
+
+            plan = CleanupPlan(
+                base_dir=root,
+                items=(
+                    CleanupItem(path=root, reason="malicious base"),
+                    CleanupItem(path=sibling_file, reason="sibling prefix"),
+                    CleanupItem(path=active_file, reason="active processing"),
+                ),
+            )
+
+            result = execute_cleanup(plan)
+
+            self.assertEqual(result.deleted_count, 0)
+            self.assertEqual(result.failed_count, 3)
+            self.assertTrue(root.exists())
+            self.assertTrue(sibling_file.exists())
+            self.assertTrue(active_file.exists())
 
 
 if __name__ == "__main__":

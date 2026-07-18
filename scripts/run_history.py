@@ -12,6 +12,11 @@ try:
 except ImportError:
     from scripts.run_ledger import normalize_run_log
 
+try:
+    from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+except ImportError:
+    from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+
 
 RUN_LOG_PATTERN = re.compile(r"^inbox-run-(\d+)\.json$")
 
@@ -236,13 +241,17 @@ def collect_failed_retry_candidates(log_path: Path, inbox_dir: Path) -> list[Pat
     for record in details.records:
         if record.status != "failed":
             continue
-        for name in record.media_names:
-            path = inbox_dir / name
+        for raw_name in record.media_names:
+            try:
+                name = require_plain_filename(raw_name)
+                path = resolve_output_under(inbox_dir, name)
+            except UnsafePathError:
+                continue
             key = path.name.lower()
             if key in seen or not path.exists():
                 continue
             seen.add(key)
-            candidates.append(path)
+            candidates.append(resolve_existing_under(inbox_dir, path))
     return candidates
 
 

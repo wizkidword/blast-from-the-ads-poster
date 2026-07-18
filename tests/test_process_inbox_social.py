@@ -105,12 +105,21 @@ class ProcessInboxSocialTests(unittest.TestCase):
     def test_copy_processed_media_to_output_copies_file_into_media_folder(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            processed_file = root / "CAP_N_CRUNCH.mp4"
+            processed_dir = root / "processed"
+            outputs_dir = root / "outputs"
+            processed_dir.mkdir()
+            outputs_dir.mkdir()
+            processed_file = processed_dir / "CAP_N_CRUNCH.mp4"
             processed_file.write_bytes(b"video-bytes")
-            output_dir = root / "workspace"
+            output_dir = outputs_dir / "workspace"
             (output_dir / "media").mkdir(parents=True)
 
-            copied_path = copy_processed_media_to_output(processed_file, output_dir)
+            copied_path = copy_processed_media_to_output(
+                processed_file,
+                output_dir,
+                processed_root=processed_dir,
+                outputs_root=outputs_dir,
+            )
 
             self.assertEqual(copied_path, output_dir / "media" / processed_file.name)
             self.assertTrue(copied_path.exists())
@@ -130,7 +139,12 @@ class ProcessInboxSocialTests(unittest.TestCase):
             source.write_bytes(b"original-video")
 
             with patch.object(processor, "convert_video_to_vertical", return_value=False):
-                processed_path = processor.handle_video_conversion_and_move(source, destination)
+                processed_path = processor.handle_video_conversion_and_move(
+                    source,
+                    destination,
+                    inbox_root=root,
+                    processed_root=destination.parent,
+                )
 
             self.assertIsNone(processed_path)
             self.assertTrue(source.exists())
@@ -140,6 +154,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
     def test_instagram_video_destination_always_uses_mp4_container(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             processed_dir = Path(temp_dir) / "processed"
+            processed_dir.mkdir()
             destination = processor.instagram_video_destination(Path("arcade-ad.mov"), processed_dir)
             self.assertEqual(destination, processed_dir / "arcade-ad.mp4")
 
@@ -248,6 +263,29 @@ class ProcessInboxSocialTests(unittest.TestCase):
 
             self.assertEqual([item["file"] for item in summary], ["retry-me.mp4"])
 
+    def test_run_inbox_processing_refuses_target_outside_inbox_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            inbox_dir = root / "inbox"
+            logs_dir = root / "logs"
+            for directory in (inbox_dir, root / "captions", root / "processed", root / "outputs", logs_dir, root / "temp"):
+                directory.mkdir()
+            outside = root / "outside.mp4"
+            outside.write_bytes(b"outside")
+
+            with (
+                patch.object(processor, "INBOX_DIR", inbox_dir),
+                patch.object(processor, "LOGS_DIR", logs_dir),
+                patch.object(processor, "load_env", return_value=None),
+                patch.object(processor, "ensure_dirs", return_value=None),
+                patch.object(processor, "get_openai_api_key", return_value="fake-key"),
+            ):
+                summary = processor.run_inbox_processing(target_files=[outside])
+
+            self.assertEqual(summary[0]["error"], "unsafe_target_path")
+            self.assertTrue(outside.exists())
+            self.assertEqual(list(inbox_dir.iterdir()), [])
+
     def test_process_image_batch_rolls_back_partial_moves_on_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -353,7 +391,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
             self.assertEqual(video_record["mime_type"], "video/mp4")
             self.assertEqual(
                 video_record["relative_path"],
-                str(Path("outputs") / output_dirs[0].name / "tiktok" / "media" / video_record["filename"]),
+                (Path("outputs") / output_dirs[0].name / "tiktok" / "media" / video_record["filename"]).as_posix(),
             )
             self.assertTrue((output_dirs[0] / "tiktok" / "media" / video_record["filename"]).exists())
             self.assertFalse((output_dirs[0] / "media" / video_record["filename"]).exists())

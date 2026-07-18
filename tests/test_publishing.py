@@ -24,6 +24,7 @@ from publishing import (  # noqa: E402
     save_manifest,
     update_manifest_review,
 )
+from safe_paths import UnsafePathError  # noqa: E402
 
 
 class PublishingTests(unittest.TestCase):
@@ -147,6 +148,21 @@ class PublishingTests(unittest.TestCase):
             self.assertEqual(saved_manifest["content"]["details"], ["Multiple magazine scans"])
             self.assertTrue((outputs_dir / "caption.txt").exists())
             self.assertTrue((captions_dir / "carousel.txt").exists())
+
+    def test_save_manifest_refuses_unsafe_caption_destination_without_rewriting_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = root / "outputs" / "video-123"
+            workspace.mkdir(parents=True)
+            manifest_path = workspace / "post_manifest.json"
+            original = '{"post_id": "video-123", "paths": {"caption_path": "../outside.txt"}}'
+            manifest_path.write_text(original, encoding="utf-8")
+
+            with self.assertRaises(UnsafePathError):
+                save_manifest(manifest_path, {"post_id": "video-123", "paths": {"caption_path": "../outside.txt"}})
+
+            self.assertEqual(manifest_path.read_text(encoding="utf-8"), original)
+            self.assertFalse((root / "outside.txt").exists())
 
     def test_list_output_manifests_finds_workspace_manifests(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
