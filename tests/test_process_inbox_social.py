@@ -121,7 +121,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
                 outputs_root=outputs_dir,
             )
 
-            self.assertEqual(copied_path, output_dir / "media" / processed_file.name)
+            self.assertEqual(copied_path, (output_dir / "media" / processed_file.name).resolve())
             self.assertTrue(copied_path.exists())
             self.assertEqual(copied_path.read_bytes(), b"video-bytes")
 
@@ -156,7 +156,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
             processed_dir = Path(temp_dir) / "processed"
             processed_dir.mkdir()
             destination = processor.instagram_video_destination(Path("arcade-ad.mov"), processed_dir)
-            self.assertEqual(destination, processed_dir / "arcade-ad.mp4")
+            self.assertEqual(destination, processed_dir.resolve() / "arcade-ad.mp4")
 
     def test_video_target_dimensions_are_full_vertical_reel_size(self) -> None:
         self.assertEqual((processor.INSTAGRAM_VIDEO_WIDTH, processor.INSTAGRAM_VIDEO_HEIGHT), (1080, 1920))

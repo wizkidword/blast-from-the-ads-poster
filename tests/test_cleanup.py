@@ -38,7 +38,7 @@ class CleanupTests(unittest.TestCase):
             touch_old(root / "!processed" / "do-not-touch.mp4", 120, now)
 
             plan = plan_cleanup(root, CleanupSettings(), now=now)
-            targets = {item.path.relative_to(root).as_posix() for item in plan.items}
+            targets = {item.path.relative_to(root.resolve()).as_posix() for item in plan.items}
 
             self.assertIn("temp/frames/frame.jpg", targets)
             self.assertIn("logs/inbox-run-1.json", targets)

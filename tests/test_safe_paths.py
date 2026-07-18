@@ -24,7 +24,7 @@ class SafePathTests(unittest.TestCase):
             self.assertEqual(resolve_existing_under(workspace.inbox, "vintage ad.mp4"), source.resolve())
             self.assertEqual(
                 resolve_output_under(workspace.outputs, "post/media/clip.mp4"),
-                workspace.outputs / "post" / "media" / "clip.mp4",
+                workspace.outputs.resolve() / "post" / "media" / "clip.mp4",
             )
 
     def test_rejects_traversal_absolute_and_windows_shaped_paths(self) -> None:

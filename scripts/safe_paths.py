@@ -83,8 +83,13 @@ def require_plain_filename(raw_name: str) -> str:
 
 def _resolved_root(root: Path) -> Path:
     root_path = Path(root)
+    if not root_path.is_dir():
+        raise UnsafePathError(f"Approved root is not a directory: {root_path}")
     try:
-        resolved = root_path.resolve(strict=True)
+        # Windows can reject a valid 8.3 user-directory alias with a strict
+        # resolve. Existence was verified above, so canonicalize without
+        # repeating the brittle strict lookup.
+        resolved = root_path.resolve(strict=False)
     except OSError as exc:
         raise UnsafePathError(f"Approved root does not exist: {root_path}") from exc
     if not resolved.is_dir():

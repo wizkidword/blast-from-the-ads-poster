@@ -87,7 +87,7 @@ class RequeueTests(unittest.TestCase):
 
             result = requeue_output_workspace(workspace, inbox, processed, root)
 
-            self.assertEqual(result.moved_files, (inbox / "clip.mp4",))
+            self.assertEqual(result.moved_files, (inbox.resolve() / "clip.mp4",))
             self.assertEqual((inbox / "clip.mp4").read_bytes(), b"primary")
             self.assertFalse((processed / "clip.mp4").exists())
             self.assertFalse(workspace.exists())
@@ -117,7 +117,7 @@ class RequeueTests(unittest.TestCase):
 
             result = requeue_output_workspace(workspace, inbox, processed, root)
 
-            self.assertEqual(result.moved_files, (inbox / "scan.jpg",))
+            self.assertEqual(result.moved_files, (inbox.resolve() / "scan.jpg",))
             self.assertEqual((inbox / "scan.jpg").read_bytes(), b"primary-image")
             self.assertFalse((inbox / "carousel-video.mp4").exists())
             self.assertFalse((processed / "carousel-video.mp4").exists())
@@ -145,7 +145,7 @@ class RequeueTests(unittest.TestCase):
 
             result = collect_failed_run_retry_plan(log_path, inbox)
 
-            self.assertEqual(result.retry_files, (inbox / "failed.mp4",))
+            self.assertEqual(result.retry_files, (inbox.resolve() / "failed.mp4",))
             self.assertEqual(result.missing_files, ("gone.mp4",))
 
     def test_requeue_refuses_unsafe_manifest_filename_without_mutation(self) -> None:
