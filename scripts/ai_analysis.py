@@ -9,6 +9,7 @@ import random
 import re
 import time
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -365,7 +366,13 @@ def _supports_reasoning(model: str) -> bool:
     return normalized.startswith("gpt-5") or normalized.startswith("o")
 
 
-def _call_openai_detailed(prompt: str, file_paths: List[Path]) -> Tuple[Optional[Dict], Optional[str]]:
+def _call_openai_detailed(
+    prompt: str,
+    file_paths: List[Path],
+    *,
+    cancellation_check: Callable[[], None] | None = None,
+) -> Tuple[Optional[Dict], Optional[str]]:
+    _check_cancelled(cancellation_check)
     api_key = get_openai_api_key()
     if not api_key:
         return None, "OPENAI_API_KEY is not configured"
@@ -403,19 +410,20 @@ def _call_openai_detailed(prompt: str, file_paths: List[Path]) -> Tuple[Optional
 
     last_error: Optional[str] = None
     for attempt in range(1, 6):
+        _check_cancelled(cancellation_check)
         try:
             response = requests.post(OPENAI_RESPONSES_URL, headers=headers, json=payload, timeout=180)
         except requests.RequestException as exc:
             last_error = f"request error on attempt {attempt}: {exc}"
             if attempt < 5:
-                time.sleep((2 ** (attempt - 1)) + random.uniform(0.2, 0.8))
+                _sleep_with_cancellation((2 ** (attempt - 1)) + random.uniform(0.2, 0.8), cancellation_check)
                 continue
             return None, last_error
 
         if response.status_code in {408, 409, 429, 500, 502, 503, 504}:
             last_error = f"OpenAI {response.status_code} on attempt {attempt}: {response.text[:300]}"
             if attempt < 5:
-                time.sleep((2 ** (attempt - 1)) + random.uniform(0.2, 0.8))
+                _sleep_with_cancellation((2 ** (attempt - 1)) + random.uniform(0.2, 0.8), cancellation_check)
                 continue
             return None, last_error
 
@@ -442,17 +450,32 @@ def _call_openai_detailed(prompt: str, file_paths: List[Path]) -> Tuple[Optional
     return None, last_error or "Unknown OpenAI error"
 
 
-def _call_openai(prompt: str, file_paths: List[Path]) -> Optional[Dict]:
-    result, _ = _call_openai_detailed(prompt, file_paths)
+def _call_openai(
+    prompt: str,
+    file_paths: List[Path],
+    *,
+    cancellation_check: Callable[[], None] | None = None,
+) -> Optional[Dict]:
+    result, _ = _call_openai_detailed(prompt, file_paths, cancellation_check=cancellation_check)
     return result
 
 
-def analyze_with_fallback(prompt: str, file_paths: List[Path], fallback_meta: Dict) -> Tuple[Optional[Dict], str, Optional[str]]:
-    vision_meta, vision_error = _call_openai_detailed(prompt, file_paths) if file_paths else (None, "No files were provided for vision analysis")
+def analyze_with_fallback(
+    prompt: str,
+    file_paths: List[Path],
+    fallback_meta: Dict,
+    *,
+    cancellation_check: Callable[[], None] | None = None,
+) -> Tuple[Optional[Dict], str, Optional[str]]:
+    vision_meta, vision_error = (
+        _call_openai_detailed(prompt, file_paths, cancellation_check=cancellation_check)
+        if file_paths
+        else (None, "No files were provided for vision analysis")
+    )
     if vision_meta:
         return vision_meta, "openai_vision", None
 
-    text_only_meta, text_error = _call_openai_detailed(prompt, [])
+    text_only_meta, text_error = _call_openai_detailed(prompt, [], cancellation_check=cancellation_check)
     if text_only_meta:
         return text_only_meta, "openai_text_only", None
 
@@ -464,8 +487,18 @@ def analyze_with_fallback(prompt: str, file_paths: List[Path], fallback_meta: Di
     return None, "failed", combined_error
 
 
-def analyze_image_batch_with_fallback(prompt: str, image_files: List[Path], fallback_meta: Dict) -> Tuple[Optional[Dict], str, Optional[str]]:
-    full_meta, full_error = _call_openai_detailed(prompt, image_files) if image_files else (None, "No files were provided for vision analysis")
+def analyze_image_batch_with_fallback(
+    prompt: str,
+    image_files: List[Path],
+    fallback_meta: Dict,
+    *,
+    cancellation_check: Callable[[], None] | None = None,
+) -> Tuple[Optional[Dict], str, Optional[str]]:
+    full_meta, full_error = (
+        _call_openai_detailed(prompt, image_files, cancellation_check=cancellation_check)
+        if image_files
+        else (None, "No files were provided for vision analysis")
+    )
     if full_meta:
         return full_meta, "openai_vision", None
 
@@ -482,12 +515,16 @@ def analyze_image_batch_with_fallback(prompt: str, image_files: List[Path], fall
             f"IMPORTANT: The attached files are a representative subset of a larger carousel batch ({len(image_files)} total images). "
             f"Use the full filename list already provided plus this subset ({subset_names}) to infer the best unified caption for the whole carousel."
         )
-        subset_meta, subset_error = _call_openai_detailed(subset_prompt, subset_files)
+        subset_meta, subset_error = _call_openai_detailed(
+            subset_prompt,
+            subset_files,
+            cancellation_check=cancellation_check,
+        )
         if subset_meta:
             return subset_meta, f"openai_vision_subset_{limit}", full_error
         subset_errors.append(f"subset_{limit} failed: {subset_error}")
 
-    text_only_meta, text_error = _call_openai_detailed(prompt, [])
+    text_only_meta, text_error = _call_openai_detailed(prompt, [], cancellation_check=cancellation_check)
     if text_only_meta:
         return text_only_meta, "openai_text_only", None
 
@@ -514,6 +551,21 @@ def call_openai(prompt: str, file_path: Optional[Path] = None) -> Optional[Dict]
 
 def call_openai_with_files(prompt: str, file_paths: List[Path]) -> Optional[Dict]:
     return _call_openai(prompt, file_paths)
+
+
+def _check_cancelled(cancellation_check: Callable[[], None] | None) -> None:
+    if cancellation_check is not None:
+        cancellation_check()
+
+
+def _sleep_with_cancellation(seconds: float, cancellation_check: Callable[[], None] | None) -> None:
+    deadline = time.monotonic() + seconds
+    while True:
+        _check_cancelled(cancellation_check)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.1, remaining))
 
 
 # Compatibility aliases for older scripts/tests that imported the Gemini names.

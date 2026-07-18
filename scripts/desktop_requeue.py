@@ -19,6 +19,11 @@ try:
 except ImportError:
     from scripts.publishing import load_manifest
 
+try:
+    from workspace_lock import WorkspaceLock
+except ImportError:
+    from scripts.workspace_lock import WorkspaceLock
+
 
 @dataclass(frozen=True)
 class RequeueExecutionResult:
@@ -39,6 +44,18 @@ def build_requeue_confirmation(plan) -> str:
 
 
 def execute_requeue_plan(
+    plan,
+    inbox_dir: Path,
+    captions_dir: Path,
+    base_dir: Path,
+    processed_dir: Path | None = None,
+) -> RequeueExecutionResult:
+    lock_root = resolve_existing_under(base_dir, base_dir)
+    with WorkspaceLock(lock_root, "requeue processed files"):
+        return _execute_requeue_plan(plan, inbox_dir, captions_dir, lock_root, processed_dir)
+
+
+def _execute_requeue_plan(
     plan,
     inbox_dir: Path,
     captions_dir: Path,

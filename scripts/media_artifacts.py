@@ -2,15 +2,26 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 try:
     from safe_paths import resolve_existing_under, resolve_output_under
 except ImportError:
     from scripts.safe_paths import resolve_existing_under, resolve_output_under
 
+try:
+    from cancellable_subprocess import run_command
+except ImportError:
+    from scripts.cancellable_subprocess import run_command
 
-def extract_video_frames(video_path: Path, temp_dir: Path, seconds_list: Optional[List[int]] = None) -> List[Path]:
+
+def extract_video_frames(
+    video_path: Path,
+    temp_dir: Path,
+    seconds_list: Optional[List[int]] = None,
+    *,
+    cancellation_check: Callable[[], None] | None = None,
+) -> List[Path]:
     temp_dir.mkdir(parents=True, exist_ok=True)
     frame_dir = resolve_output_under(temp_dir, "frames")
     frame_dir.mkdir(parents=True, exist_ok=True)
@@ -18,6 +29,8 @@ def extract_video_frames(video_path: Path, temp_dir: Path, seconds_list: Optiona
     frames: List[Path] = []
 
     for index, seconds in enumerate(timestamps, start=1):
+        if cancellation_check is not None:
+            cancellation_check()
         frame_path = resolve_output_under(frame_dir, f"{video_path.stem}_frame_{index}.jpg")
         cmd = [
             "ffmpeg",
@@ -33,7 +46,7 @@ def extract_video_frames(video_path: Path, temp_dir: Path, seconds_list: Optiona
             str(frame_path),
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
+            result = run_command(cmd, timeout=120, cancellation_check=cancellation_check)
         except FileNotFoundError:
             return []
         if result.returncode == 0 and frame_path.exists():
