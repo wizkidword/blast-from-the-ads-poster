@@ -7,15 +7,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:
-    from run_ledger import normalize_run_log
+    from run_ledger import load_normalized_run_ledger
 except ImportError:
-    from scripts.run_ledger import normalize_run_log
+    from scripts.run_ledger import load_normalized_run_ledger
 
 try:
-    from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
+    from recovery_service import build_retry_plan
 except ImportError:
-    from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
-
+    from scripts.recovery_service import build_retry_plan
 
 RUN_LOG_PATTERN = re.compile(r"^inbox-run-(.+)\.json$")
 
@@ -62,8 +61,8 @@ class RunDetails:
 def summarize_inbox_run(log_path: Path) -> RunSummary:
     run_id = _run_id_from_path(log_path)
     try:
-        normalized = normalize_run_log(log_path)
-        raw_results = normalized["records"]
+        normalized = load_normalized_run_ledger(log_path)
+        raw_results = [record.raw for record in normalized.records]
     except Exception as exc:
         return RunSummary(
             path=log_path,
@@ -169,7 +168,7 @@ def find_latest_run_log(logs_dir: Path) -> Path | None:
 def load_inbox_run_details(log_path: Path) -> RunDetails:
     summary = summarize_inbox_run(log_path)
     try:
-        raw_results = normalize_run_log(log_path)["records"]
+        raw_results = [record.raw for record in load_normalized_run_ledger(log_path).records]
     except Exception:
         raw_results = []
 
@@ -240,24 +239,7 @@ def format_run_details(details: RunDetails) -> str:
 
 
 def collect_failed_retry_candidates(log_path: Path, inbox_dir: Path) -> list[Path]:
-    details = load_inbox_run_details(log_path)
-    candidates: list[Path] = []
-    seen: set[str] = set()
-    for record in details.records:
-        if record.status != "failed":
-            continue
-        for raw_name in record.media_names:
-            try:
-                name = require_plain_filename(raw_name)
-                path = resolve_output_under(inbox_dir, name)
-            except UnsafePathError:
-                continue
-            key = path.name.lower()
-            if key in seen or not path.exists():
-                continue
-            seen.add(key)
-            candidates.append(resolve_existing_under(inbox_dir, path))
-    return candidates
+    return list(build_retry_plan([log_path], inbox_dir).retry_files)
 
 
 def _run_id_from_path(log_path: Path) -> str:

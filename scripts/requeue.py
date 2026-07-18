@@ -22,9 +22,9 @@ except ImportError:
     from scripts.publishing import load_manifest
 
 try:
-    from run_ledger import normalize_run_log
+    from recovery_service import build_retry_plan
 except ImportError:
-    from scripts.run_ledger import normalize_run_log
+    from scripts.recovery_service import build_retry_plan
 
 try:
     from workspace_lock import WorkspaceLock
@@ -53,6 +53,8 @@ class WorkspaceRequeueResult:
 class FailedRunRetryPlan:
     retry_files: tuple[Path, ...]
     missing_files: tuple[str, ...]
+    skipped_files: tuple[str, ...] = ()
+    errors: tuple[str, ...] = ()
 
 
 def collect_requeue_plan(outputs_dir: Path, processed_dir: Path) -> RequeuePlan:
@@ -99,31 +101,14 @@ def collect_requeue_plan(outputs_dir: Path, processed_dir: Path) -> RequeuePlan:
     )
 
 
-def collect_failed_run_retry_plan(log_path: Path, inbox_dir: Path) -> FailedRunRetryPlan:
-    try:
-        safe_log_path = resolve_existing_under(log_path.parent, log_path)
-        records = normalize_run_log(safe_log_path)["records"]
-    except (OSError, ValueError, UnsafePathError) as exc:
-        raise ValueError(f"Could not read failed-run ledger safely: {exc}") from exc
-
-    retry_files: list[Path] = []
-    missing: list[str] = []
-    seen: set[str] = set()
-    for record in records if isinstance(records, list) else []:
-        if not isinstance(record, dict) or str(record.get("status", "")).lower() != "failed":
-            continue
-        for name in _record_file_names(record):
-            name = require_plain_filename(name)
-            key = name.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            candidate = resolve_output_under(inbox_dir, name)
-            if candidate.exists():
-                retry_files.append(resolve_existing_under(inbox_dir, candidate))
-            else:
-                missing.append(name)
-    return FailedRunRetryPlan(retry_files=tuple(retry_files), missing_files=tuple(missing))
+def collect_failed_run_retry_plan(log_path: Path, inbox_dir: Path, outputs_dir: Path | None = None) -> FailedRunRetryPlan:
+    plan = build_retry_plan([log_path], inbox_dir, outputs_dir=outputs_dir)
+    return FailedRunRetryPlan(
+        retry_files=plan.retry_files,
+        missing_files=plan.missing_files,
+        skipped_files=plan.skipped_files,
+        errors=plan.errors,
+    )
 
 
 def requeue_output_workspace(
@@ -261,15 +246,6 @@ def _workspace_caption_paths(
             seen.add(key)
             unique.append((path, root))
     return unique
-
-
-def _record_file_names(record: dict) -> list[str]:
-    files = record.get("files")
-    if isinstance(files, list):
-        return [str(item) for item in files if str(item)]
-    if record.get("file"):
-        return [str(record["file"])]
-    return []
 
 
 def _validate_workspace_manifest(manifest: dict, base_dir: Path, captions_dir: Path | None) -> None:

@@ -181,9 +181,10 @@ class RequeueTests(unittest.TestCase):
             log_path = logs / "inbox-run-123.json"
             log_path.write_text(__import__("json").dumps([{"file": "../outside.mp4", "status": "failed"}]), encoding="utf-8")
 
-            with self.assertRaises(UnsafePathError):
-                collect_failed_run_retry_plan(log_path, inbox)
+            result = collect_failed_run_retry_plan(log_path, inbox)
 
+            self.assertEqual(result.retry_files, ())
+            self.assertTrue(result.errors)
             self.assertFalse((root / "outside.mp4").exists())
 
 

@@ -100,6 +100,11 @@ except ImportError:
     from scripts.recovery_queue import build_recovery_queue, format_recovery_queue, plan_retry_targets
 
 try:
+    from recovery_service import build_retry_plan, execute_retry_plan, filter_retry_plan
+except ImportError:
+    from scripts.recovery_service import build_retry_plan, execute_retry_plan, filter_retry_plan
+
+try:
     from review_queue import bulk_update_status, format_review_preview, query_review_items
 except ImportError:
     from scripts.review_queue import bulk_update_status, format_review_preview, query_review_items
@@ -115,9 +120,9 @@ except ImportError:
     from scripts.publishing import PublishStatus, list_provider_names, load_manifest, normalize_hashtag_list, save_manifest, update_manifest_review
 
 try:
-    from requeue import collect_failed_run_retry_plan, collect_requeue_plan, requeue_output_workspace
+    from requeue import collect_requeue_plan, requeue_output_workspace
 except ImportError:
-    from scripts.requeue import collect_failed_run_retry_plan, collect_requeue_plan, requeue_output_workspace
+    from scripts.requeue import collect_requeue_plan, requeue_output_workspace
 
 try:
     from desktop_status import build_status_snapshot, format_status_line
@@ -542,7 +547,11 @@ class SocialBatchApp:
         self.run_history_var.set(format_run_history(self.run_summaries[:3]))
 
     def refresh_recovery_queue(self) -> None:
-        self.recovery_queue = build_recovery_queue(self.context.logs_dir, self.context.inbox_dir)
+        self.recovery_queue = build_recovery_queue(
+            self.context.logs_dir,
+            self.context.inbox_dir,
+            self.context.outputs_dir,
+        )
         self.recovery_status_var.set(
             f"Recovery Queue: {self.recovery_queue.available_count} available, {self.recovery_queue.stale_count} stale"
         )
@@ -670,10 +679,18 @@ class SocialBatchApp:
         if not self.selected_run_log_path:
             messagebox.showinfo("No run selected", "Choose a run from the recovery list first.")
             return
-        plan = collect_failed_run_retry_plan(self.selected_run_log_path, self.context.inbox_dir)
+        plan = build_retry_plan(
+            [self.selected_run_log_path],
+            self.context.inbox_dir,
+            outputs_dir=self.context.outputs_dir,
+        )
         if not plan.retry_files:
-            missing = "\n".join(plan.missing_files) if plan.missing_files else "No failed files were listed."
-            messagebox.showinfo("Nothing to retry", f"No failed files from this run are currently in inbox.\n\nMissing:\n{missing}")
+            unavailable = "\n".join([*plan.missing_files, *plan.skipped_files]) or "No failed files were listed."
+            details = "\n".join(plan.errors)
+            message = f"No failed files from this run are currently safe to retry.\n\nUnavailable:\n{unavailable}"
+            if details:
+                message += f"\n\nDetails:\n{details}"
+            messagebox.showinfo("Nothing to retry", message)
             return
         confirmed = messagebox.askyesno(
             "Retry failed files",
@@ -681,13 +698,14 @@ class SocialBatchApp:
         )
         if not confirmed:
             return
-        self._run_workflow("inbox", target_files=list(plan.retry_files))
+        execute_retry_plan(plan, lambda targets: self._run_workflow("inbox", target_files=targets))
 
     def retry_recovery_queue(self, mode: str) -> None:
         self.refresh_recovery_queue()
         if not self.recovery_queue:
             return
-        targets = plan_retry_targets(self.recovery_queue, mode=mode)
+        plan = filter_retry_plan(self.recovery_queue.plan, mode=mode) if self.recovery_queue.plan else None
+        targets = list(plan.retry_files) if plan else plan_retry_targets(self.recovery_queue, mode=mode)
         if not targets:
             messagebox.showinfo("Nothing to retry", format_recovery_queue(self.recovery_queue))
             return
@@ -696,7 +714,10 @@ class SocialBatchApp:
             f"Retry {len(targets)} available failed file(s) in mode '{mode}'?\n\nThis will process only those inbox files.",
         )
         if confirmed:
-            self._run_workflow("inbox", target_files=targets)
+            if plan is not None:
+                execute_retry_plan(plan, lambda retry_targets: self._run_workflow("inbox", target_files=retry_targets))
+            else:
+                self._run_workflow("inbox", target_files=targets)
 
     def requeue_selected_post(self) -> None:
         if not self.selected_manifest_path:
