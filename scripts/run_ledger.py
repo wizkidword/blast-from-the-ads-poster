@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,29 @@ except ImportError:
 
 RUN_SCHEMA_VERSION = 3
 _SUPPORTED_RUN_SCHEMA_VERSIONS = {2, RUN_SCHEMA_VERSION}
+
+
+@dataclass(frozen=True)
+class NormalizedRunRecord:
+    """Stable internal view of one legacy or current run-ledger record."""
+
+    record_type: str
+    status: str
+    media_names: tuple[str, ...]
+    error_message: str | None
+    output_dir: Path | None
+    transaction_status: str | None
+    raw: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class NormalizedRunLedger:
+    """One normalized ledger document for history and recovery consumers."""
+
+    path: Path
+    run_id: str
+    schema_version: int
+    records: tuple[NormalizedRunRecord, ...]
 
 
 def write_run_ledger(
@@ -90,6 +114,19 @@ def normalize_run_log(log_path: Path) -> dict[str, Any]:
         supported_versions=_SUPPORTED_RUN_SCHEMA_VERSIONS,
     )
     return _normalize_structured_log(payload, log_path)
+
+
+def load_normalized_run_ledger(log_path: Path) -> NormalizedRunLedger:
+    """Load either supported ledger shape into one recovery-safe record model."""
+
+    payload = normalize_run_log(log_path)
+    run = payload["run"]
+    return NormalizedRunLedger(
+        path=Path(log_path),
+        run_id=str(run["run_id"]),
+        schema_version=int(payload["schema_version"]),
+        records=tuple(_normalize_run_record(record) for record in payload["records"]),
+    )
 
 
 def _migrate_legacy_array_log(records: list[Any], log_path: Path) -> dict[str, Any]:
@@ -181,6 +218,33 @@ def _media_count(record: dict[str, Any]) -> int:
 def _run_id_from_path(log_path: Path) -> str:
     stem = log_path.stem
     return stem.removeprefix("inbox-run-")
+
+
+def _normalize_run_record(record: dict[str, Any]) -> NormalizedRunRecord:
+    media_names: list[str] = []
+    raw_files = record.get("files")
+    if isinstance(raw_files, list):
+        media_names.extend(str(item) for item in raw_files if str(item))
+    elif record.get("file"):
+        media_names.append(str(record["file"]))
+
+    error = str(record.get("error") or record.get("analysis_error") or "").strip()
+    message = str(record.get("message") or "").strip()
+    if error and message and error != message:
+        error = f"{error}: {message}"
+    elif not error:
+        error = message
+    return NormalizedRunRecord(
+        record_type=str(record.get("type") or "unknown").strip().lower() or "unknown",
+        status=str(record.get("status") or "unknown").strip().lower() or "unknown",
+        media_names=tuple(media_names),
+        error_message=error or None,
+        output_dir=Path(str(record["output_dir"])) if record.get("output_dir") else None,
+        transaction_status=str(record.get("transaction_status")).strip().lower()
+        if record.get("transaction_status")
+        else None,
+        raw=dict(record),
+    )
 
 
 def utc_now_iso() -> str:

@@ -42,6 +42,7 @@ class PackagingTests(unittest.TestCase):
             "processing_orchestrator",
             "processing_transaction",
             "recovery_queue",
+            "recovery_service",
             "review_queue",
             "run_ledger",
             "settings_store",

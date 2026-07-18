@@ -26,6 +26,16 @@ try:
 except ImportError:
     from scripts.publishing import list_provider_names
 
+try:
+    from recovery_service import build_retry_plan, execute_retry_plan
+except ImportError:
+    from scripts.recovery_service import build_retry_plan, execute_retry_plan
+
+try:
+    from safe_paths import UnsafePathError, resolve_existing_under
+except ImportError:
+    from scripts.safe_paths import UnsafePathError, resolve_existing_under
+
 
 def configure_standard_streams() -> None:
     for stream in (sys.stdout, sys.stderr):
@@ -83,6 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
     inbox.add_argument("--limit", type=int, help="Limit number of files processed")
     inbox.add_argument("--dry-run", action="store_true", help="Analyze without writing or moving files")
 
+    retry = subparsers.add_parser("retry", help="Retry failed inbox media from run ledgers")
+    retry.add_argument("--run", help="Run-log filename to retry; defaults to all inbox-run logs")
+    retry.add_argument("--mode", choices=("all", "videos", "images"), default="all", help="Limit retries by media type")
+
     subparsers.add_parser("setup", help="Check local dependencies and config")
     return parser
 
@@ -103,6 +117,35 @@ def main() -> int:
 
     if args.command == "setup":
         return setup_check()
+
+    if args.command == "retry":
+        try:
+            context = build_app_context()
+            prepare_app_context(context)
+            if args.run:
+                log_paths = [resolve_existing_under(context.logs_dir, args.run)]
+            else:
+                log_paths = sorted(context.logs_dir.glob("inbox-run-*.json"), key=lambda path: path.name, reverse=True)
+            plan = build_retry_plan(log_paths, context.inbox_dir, outputs_dir=context.outputs_dir, mode=args.mode)
+        except (OSError, ValueError, UnsafePathError) as exc:
+            print(f"Configuration error: {exc}")
+            return 1
+
+        for error in plan.errors:
+            print(f"Recovery warning: {error}")
+        if not plan.retry_files:
+            print("No failed files are currently safe to retry.")
+            if plan.missing_files:
+                print("Missing: " + ", ".join(plan.missing_files))
+            if plan.skipped_files:
+                print("Skipped: " + ", ".join(plan.skipped_files))
+            return 1 if plan.errors else 0
+        print(f"Retrying {len(plan.retry_files)} failed file(s) in {args.mode} mode.")
+        summary = execute_retry_plan(
+            plan,
+            lambda target_files: run_inbox_processing(target_files=target_files, context=context),
+        )
+        return 1 if summary is not None and has_failed_results(summary) else 0
 
     parser.print_help()
     return 0
