@@ -35,6 +35,9 @@ def build_review_context_text(manifest: dict, readiness_text: str = "") -> str:
         f"Post ID: {manifest.get('post_id', 'Unknown')}",
         f"Type: {manifest.get('post_type', 'Unknown')}",
         f"Analysis source: {analysis.get('source', 'Unknown')}",
+        f"Analysis provenance: {analysis.get('provenance', 'Unknown')}",
+        f"Analysis model: {analysis.get('model') or 'Not applicable'}",
+        f"Analysis cache: {'hit' if analysis.get('cached') else 'new or not applicable'}",
         f"Analysis error: {analysis.get('error') or 'None'}",
         "",
         "Analysis:",
@@ -45,6 +48,8 @@ def build_review_context_text(manifest: dict, readiness_text: str = "") -> str:
         "",
         "Source files:",
     ]
+    if analysis.get("provider") == "openai":
+        lines.append("Privacy: selected reduced analysis copies were sent to the configured AI service; store=False is not offline mode.")
     lines.extend(f"- {item.get('filename', 'Unknown')}" for item in source_files)
     lines.extend(["", "Staged media:"])
     lines.extend(f"- {item.get('filename', 'Unknown')} ({item.get('mime_type', 'unknown')})" for item in media_files)

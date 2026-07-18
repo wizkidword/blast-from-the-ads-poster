@@ -239,6 +239,11 @@ class SocialBatchApp:
         self.settings_max_video_duration_var = StringVar()
         self.settings_max_carousel_images_var = StringVar()
         self.settings_max_analysis_payload_var = StringVar()
+        self.settings_max_analysis_images_var = StringVar()
+        self.settings_max_analysis_dimension_var = StringVar()
+        self.settings_max_analysis_request_bytes_var = StringVar()
+        self.settings_max_analysis_video_frames_var = StringVar()
+        self.settings_ai_enabled_var = BooleanVar(value=True)
         self.settings_allow_fallback_var = BooleanVar(value=False)
         self.status_card_vars: dict[str, StringVar] = {}
         self.running = False
@@ -502,6 +507,14 @@ class SocialBatchApp:
         add_entry("OpenAI model", self.settings_openai_model_var)
         Checkbutton(
             settings_body,
+            text="Use OpenAI analysis (disable to create editable local drafts)",
+            variable=self.settings_ai_enabled_var,
+            bg=SURFACE,
+            fg=TEXT,
+            activebackground=SURFACE,
+        ).pack(anchor=W, pady=(0, 8))
+        Checkbutton(
+            settings_body,
             text="Allow generic emergency fallback captions",
             variable=self.settings_allow_fallback_var,
             bg=SURFACE,
@@ -518,6 +531,10 @@ class SocialBatchApp:
         add_entry("Max video seconds", self.settings_max_video_duration_var, width=16)
         add_entry("Max carousel images", self.settings_max_carousel_images_var, width=16)
         add_entry("Max analysis bytes", self.settings_max_analysis_payload_var, width=16)
+        add_entry("Max AI analysis images", self.settings_max_analysis_images_var, width=16)
+        add_entry("Max AI analysis dimension", self.settings_max_analysis_dimension_var, width=16)
+        add_entry("Max AI request bytes", self.settings_max_analysis_request_bytes_var, width=16)
+        add_entry("Max AI video frames", self.settings_max_analysis_video_frames_var, width=16)
         add_entry("Log retention days", self.settings_logs_retention_var, width=16)
         add_entry("Posting pack retention days", self.settings_pack_retention_var, width=16)
         add_entry("Orphan output retention days", self.settings_orphan_retention_var, width=16)
@@ -841,6 +858,7 @@ class SocialBatchApp:
         settings = self.context.settings
         state = build_settings_form_state(settings)
         self.settings_openai_model_var.set(state.openai_model)
+        self.settings_ai_enabled_var.set(state.ai_analysis_enabled)
         self.settings_allow_fallback_var.set(state.allow_generic_fallback_captions)
         self.settings_default_providers_var.set(state.default_providers)
         self.settings_logs_retention_var.set(state.logs_retention_days)
@@ -856,6 +874,10 @@ class SocialBatchApp:
         self.settings_max_video_duration_var.set(state.max_video_duration_seconds)
         self.settings_max_carousel_images_var.set(state.max_carousel_images)
         self.settings_max_analysis_payload_var.set(state.max_analysis_payload_bytes)
+        self.settings_max_analysis_images_var.set(state.max_analysis_images)
+        self.settings_max_analysis_dimension_var.set(state.max_analysis_image_dimension)
+        self.settings_max_analysis_request_bytes_var.set(state.max_analysis_request_bytes)
+        self.settings_max_analysis_video_frames_var.set(state.max_analysis_video_frames)
         load_env()
         self.settings_env_status_var.set("OpenAI API key: configured in .env" if get_openai_api_key() else "OpenAI API key: missing from .env")
         self.settings_status_var.set(f"Loaded settings from {self.context.settings_path}")
@@ -863,6 +885,7 @@ class SocialBatchApp:
     def save_settings_tab(self) -> None:
         state = SettingsFormState(
             openai_model=self.settings_openai_model_var.get(),
+            ai_analysis_enabled=self.settings_ai_enabled_var.get(),
             allow_generic_fallback_captions=self.settings_allow_fallback_var.get(),
             default_providers=self.settings_default_providers_var.get(),
             logs_retention_days=self.settings_logs_retention_var.get(),
@@ -878,6 +901,10 @@ class SocialBatchApp:
             max_video_duration_seconds=self.settings_max_video_duration_var.get(),
             max_carousel_images=self.settings_max_carousel_images_var.get(),
             max_analysis_payload_bytes=self.settings_max_analysis_payload_var.get(),
+            max_analysis_images=self.settings_max_analysis_images_var.get(),
+            max_analysis_image_dimension=self.settings_max_analysis_dimension_var.get(),
+            max_analysis_request_bytes=self.settings_max_analysis_request_bytes_var.get(),
+            max_analysis_video_frames=self.settings_max_analysis_video_frames_var.get(),
         )
         try:
             settings = parse_settings_form_state(state)

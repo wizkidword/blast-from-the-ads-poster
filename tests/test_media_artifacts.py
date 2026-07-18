@@ -18,6 +18,28 @@ from media_processing import MediaProcessingTimeout  # noqa: E402
 
 
 class MediaArtifactsTests(unittest.TestCase):
+    def test_proportional_timestamps_cover_later_video_sections(self) -> None:
+        timestamps = media_artifacts.proportional_frame_timestamps(180.0, 8)
+
+        self.assertLessEqual(len(timestamps), 8)
+        self.assertGreater(timestamps[-1], 100)
+        self.assertEqual(timestamps, sorted(timestamps))
+
+    def test_identical_frame_bytes_are_deduplicated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            video = root / "video.mp4"
+            video.write_bytes(b"video")
+
+            def identical_frames(command, **_kwargs):
+                Path(command[-1]).write_bytes(b"same-frame")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch.object(media_artifacts, "run_command", side_effect=identical_frames):
+                frames = media_artifacts.extract_video_frames(video, root / "temp", [1, 2])
+
+            self.assertEqual(len(frames), 1)
+
     def test_frame_extraction_uses_an_isolated_generated_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

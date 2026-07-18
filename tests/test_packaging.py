@@ -24,6 +24,7 @@ class PackagingTests(unittest.TestCase):
 
         for module_name in (
             "ai_analysis",
+            "analysis_provenance",
             "app_metadata",
             "caption_builder",
             "cancellable_subprocess",

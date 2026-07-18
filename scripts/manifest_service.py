@@ -32,6 +32,11 @@ try:
 except ImportError:
     from scripts.atomic_io import atomic_write_json
 
+try:
+    from analysis_provenance import normalize_provenance
+except ImportError:
+    from scripts.analysis_provenance import normalize_provenance
+
 def relative_to_base(path: Path, base_dir: Path) -> str:
     try:
         return normalize_relative_to(base_dir, path)
@@ -118,6 +123,9 @@ def write_post_manifest(
     caption_path = resolve_existing_under(base_dir, caption_path)
     if legacy_caption_path:
         legacy_caption_path = resolve_existing_under(legacy_caption_root or base_dir, legacy_caption_path)
+    analysis_details = meta.get("_analysis", {}) if isinstance(meta.get("_analysis"), dict) else {}
+    analysis_meta = {key: value for key, value in meta.items() if key != "_analysis"}
+    provenance = normalize_provenance(analysis_details.get("provenance") or analysis_source)
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "post_id": post_id,
@@ -143,8 +151,15 @@ def write_post_manifest(
         },
         "analysis": {
             "source": analysis_source,
+            "provenance": provenance,
+            "provider": analysis_details.get("provider"),
+            "model": analysis_details.get("model"),
+            "prompt_version": analysis_details.get("prompt_version"),
+            "cached": bool(analysis_details.get("cached", False)),
+            "input_count": analysis_details.get("input_count"),
+            "cache_key": analysis_details.get("cache_key"),
             "error": analysis_error,
-            "meta": meta,
+            "meta": analysis_meta,
         },
         "content": {
             "title": title,

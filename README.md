@@ -145,6 +145,7 @@ Create or edit `settings.json` for non-secret preferences. Secrets still belong 
 ```json
 {
   "openai_model": "gpt-5.4-nano",
+  "ai_analysis_enabled": true,
   "allow_generic_fallback_captions": false,
   "default_providers": ["manual_export"],
   "logs_retention_days": 90,
@@ -159,11 +160,21 @@ Create or edit `settings.json` for non-secret preferences. Secrets still belong 
   "max_image_dimension": 10000,
   "max_video_duration_seconds": 900,
   "max_carousel_images": 20,
-  "max_analysis_payload_bytes": 100000000
+  "max_analysis_payload_bytes": 100000000,
+  "max_analysis_images": 8,
+  "max_analysis_image_dimension": 1600,
+  "max_analysis_request_bytes": 12000000,
+  "max_analysis_video_frames": 8
 }
 ```
 
 Leave `captions_dir` or `processed_dir` blank to use the local `captions/` and `!processed/` folders.
+
+## AI analysis and privacy
+
+When AI analysis is enabled, the app creates temporary lower-resolution copies and sends only those bounded copies to the configured AI provider. `store: false` asks the provider not to retain a response, but it does not make the request offline. The Review panel records whether copy came from vision, a text fallback, a generic fallback, a local manual draft, or a later edit.
+
+Set `ai_analysis_enabled` to `false` (or `SKIP_AI_ANALYSIS=true`) to keep media local and create editable manual drafts without an API key. Those drafts, along with text-only and generic fallbacks, stay in Draft until you save a review and then mark them Ready. Successful AI results are cached locally under `cache/ai-analysis/` using source content, model, prompt version, and request settings; the cache is ignored by Git.
 
 ## Media Preflight
 

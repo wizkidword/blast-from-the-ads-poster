@@ -25,9 +25,52 @@ from process_inbox_social import (  # noqa: E402
 )
 from process_inbox_social import pick_representative_files  # noqa: E402
 from run_ledger import normalize_run_log  # noqa: E402
+from settings_store import AppSettings  # noqa: E402
 
 
 class ProcessInboxSocialTests(unittest.TestCase):
+    def test_disabled_ai_allows_a_manual_draft_run_without_an_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context = processor.build_app_context(root, settings=AppSettings(ai_analysis_enabled=False))
+
+            with (
+                patch.dict("os.environ", {"OPENAI_API_KEY": ""}),
+                patch.object(processor, "load_env", return_value=None),
+                patch.object(processor, "get_openai_api_key", return_value=""),
+            ):
+                summary = processor.run_inbox_processing(context=context)
+
+            self.assertEqual(summary, [])
+
+    def test_disabled_ai_creates_a_manual_draft_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context = processor.build_app_context(root, settings=AppSettings(ai_analysis_enabled=False))
+            processor.ensure_dirs(context)
+            source = context.inbox_dir / "1982-arcade-ad.mp4"
+            source.write_bytes(b"original-video")
+            frame = context.temp_dir / "analysis-frame.jpg"
+            frame.write_bytes(b"frame")
+            processed = context.processed_dir / "1982-arcade-ad.mp4"
+
+            def fake_move(_file_path: Path, _destination: Path, **_kwargs) -> Path:
+                processed.write_bytes(b"processed-video")
+                return processed
+
+            with (
+                patch.dict("os.environ", {"OPENAI_API_KEY": ""}),
+                patch.object(processor, "extract_video_frames", return_value=[frame]),
+                patch.object(processor, "handle_video_conversion_and_move", side_effect=fake_move),
+            ):
+                result = processor.process_video_file(source, context=context)
+
+            manifest = json.loads(Path(result["manifest_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "processed")
+            self.assertEqual(result["publish_status"], "draft")
+            self.assertEqual(manifest["analysis"]["provenance"], "manual")
+            self.assertEqual(manifest["publishing"]["workflow_status"], "draft")
+
     def test_sanitize_slug_collapses_noise(self) -> None:
         self.assertEqual(sanitize_slug("Nabisco Toy Round Up!!!"), "nabisco-toy-round-up")
 

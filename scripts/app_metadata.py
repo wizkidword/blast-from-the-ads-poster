@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 APP_NAME = "Blast From the Ads"
-APP_VERSION = "4.3.0"
+APP_VERSION = "4.4.0"
 BUILD_CHANNEL = "local-windows"
 
 

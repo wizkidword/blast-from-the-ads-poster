@@ -7,9 +7,9 @@ import shutil
 import sys
 
 try:
-    from process_inbox_social import get_openai_model, has_failed_results, load_env, run_inbox_processing
+    from process_inbox_social import ai_analysis_enabled, analysis_policy_from_settings, get_openai_model, has_failed_results, load_env, run_inbox_processing
 except ImportError:
-    from scripts.process_inbox_social import get_openai_model, has_failed_results, load_env, run_inbox_processing
+    from scripts.process_inbox_social import ai_analysis_enabled, analysis_policy_from_settings, get_openai_model, has_failed_results, load_env, run_inbox_processing
 
 try:
     from app_context import AppContext, build_app_context, prepare_app_context
@@ -54,7 +54,14 @@ def setup_check(context: AppContext | None = None) -> int:
         return 1
 
     checks: list[tuple[str, bool, str]] = []
-    checks.append(("OPENAI_API_KEY configured", bool(os.environ.get("OPENAI_API_KEY")), "Add it to .env"))
+    analysis_enabled = ai_analysis_enabled(analysis_policy_from_settings(active_context.settings))
+    checks.append(
+        (
+            "OPENAI_API_KEY configured" if analysis_enabled else "AI analysis disabled (local drafts)",
+            bool(os.environ.get("OPENAI_API_KEY")) if analysis_enabled else True,
+            "Add it to .env or disable AI analysis for editable local drafts",
+        )
+    )
     checks.append(("ffmpeg available", shutil.which("ffmpeg") is not None, "Install ffmpeg and add it to PATH"))
     checks.append(("ffprobe available", shutil.which("ffprobe") is not None, "Install ffmpeg and add it to PATH"))
 
@@ -81,6 +88,10 @@ def setup_check(context: AppContext | None = None) -> int:
     print(f"Caption exports: {active_context.captions_dir}")
     print(f"Processed media: {active_context.processed_dir}")
     print(f"OpenAI model: {get_openai_model()}")
+    if analysis_enabled:
+        print("AI privacy: selected bounded analysis copies are sent to the configured AI service. store=False does not make analysis offline.")
+    else:
+        print("AI privacy: AI analysis is disabled; no media is uploaded by this workflow.")
     print(f"Publish providers: {', '.join(list_provider_names()) or 'None'}")
     return 1 if failures else 0
 

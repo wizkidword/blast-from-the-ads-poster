@@ -19,6 +19,7 @@ class DesktopSettingsTests(unittest.TestCase):
         state = build_settings_form_state(
             AppSettings(
                 openai_model="gpt-test",
+                ai_analysis_enabled=False,
                 allow_generic_fallback_captions=True,
                 default_providers=("manual_export", "instagram"),
                 logs_retention_days=120,
@@ -34,10 +35,15 @@ class DesktopSettingsTests(unittest.TestCase):
                 max_video_duration_seconds=90,
                 max_carousel_images=4,
                 max_analysis_payload_bytes=321,
+                max_analysis_images=5,
+                max_analysis_image_dimension=1200,
+                max_analysis_request_bytes=456,
+                max_analysis_video_frames=4,
             )
         )
 
         self.assertEqual(state.openai_model, "gpt-test")
+        self.assertFalse(state.ai_analysis_enabled)
         self.assertTrue(state.allow_generic_fallback_captions)
         self.assertEqual(state.default_providers, "manual_export, instagram")
         self.assertEqual(state.logs_retention_days, "120")
@@ -50,6 +56,7 @@ class DesktopSettingsTests(unittest.TestCase):
         settings = parse_settings_form_state(
             SettingsFormState(
                 openai_model=" gpt-5.4-nano ",
+                ai_analysis_enabled=False,
                 allow_generic_fallback_captions=False,
                 default_providers="manual_export, instagram",
                 logs_retention_days="90",
@@ -65,6 +72,10 @@ class DesktopSettingsTests(unittest.TestCase):
                 max_video_duration_seconds="90",
                 max_carousel_images="4",
                 max_analysis_payload_bytes="321",
+                max_analysis_images="5",
+                max_analysis_image_dimension="1200",
+                max_analysis_request_bytes="456",
+                max_analysis_video_frames="4",
             )
         )
 
@@ -75,6 +86,8 @@ class DesktopSettingsTests(unittest.TestCase):
         self.assertEqual(settings.captions_dir, r"H:\Postiz\Captions")
         self.assertEqual(settings.processed_dir, r"H:\Postiz\Processed")
         self.assertEqual(settings.max_analysis_payload_bytes, 321)
+        self.assertFalse(settings.ai_analysis_enabled)
+        self.assertEqual(settings.max_analysis_video_frames, 4)
 
     def test_parse_settings_form_state_rejects_non_positive_retention_values(self) -> None:
         with self.assertRaisesRegex(ValueError, "logs_retention_days"):

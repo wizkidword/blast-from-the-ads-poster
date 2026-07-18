@@ -29,6 +29,7 @@ echo Building standalone executable...
 --hidden-import "app_metadata" ^
 --hidden-import "app_paths" ^
 --hidden-import "ai_analysis" ^
+--hidden-import "analysis_provenance" ^
 --hidden-import "blast_workflow" ^
 --hidden-import "caption_builder" ^
 --hidden-import "cancellable_subprocess" ^

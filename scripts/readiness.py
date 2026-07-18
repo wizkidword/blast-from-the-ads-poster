@@ -29,6 +29,11 @@ try:
 except ImportError:
     from scripts.safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under
 
+try:
+    from analysis_provenance import requires_manual_review
+except ImportError:
+    from scripts.analysis_provenance import requires_manual_review
+
 
 class ReadinessBlockedError(ValueError):
     """Raised when a requested Ready transition has one or more blocking checks."""
@@ -355,13 +360,13 @@ def _append_provenance_check(checks: list[ReadinessCheck], manifest: dict[str, A
     provenance = str(manifest.get("analysis", {}).get("provenance") or "").strip().lower()
     if not provenance:
         return
-    needs_review = provenance in {"text_fallback", "generic_fallback"}
+    needs_review = requires_manual_review(provenance)
     checks.append(
         ReadinessCheck(
             "analysis_provenance",
             not needs_review,
-            False,
-            "Analysis provenance requires manual review before Ready." if needs_review else f"Analysis provenance: {provenance}.",
+            needs_review,
+            "Analysis provenance requires a saved manual review before Ready." if needs_review else f"Analysis provenance: {provenance}.",
         )
     )
 

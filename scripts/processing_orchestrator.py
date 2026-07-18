@@ -25,6 +25,11 @@ try:
 except ImportError:
     from scripts.atomic_io import atomic_write_text
 
+try:
+    from analysis_provenance import requires_manual_review
+except ImportError:
+    from scripts.analysis_provenance import requires_manual_review
+
 
 def process_video_file(file_path: Path, api, dry_run: bool = False) -> Dict:
     print(f"Processing video: {file_path.name}")
@@ -68,6 +73,7 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
 
     caption_payload = api.build_caption_payload(meta, file_path.name)
     caption_text = api.build_caption_block(meta, file_path.name)
+    workflow_status = _workflow_status_for_analysis(meta, analysis_source)
     legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, f"{file_path.stem}.txt")
 
     if dry_run:
@@ -110,7 +116,7 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
             post_id=post_id,
             output_dir=output_dir,
             post_type="video",
-            workflow_status=PublishStatus.READY,
+            workflow_status=workflow_status,
             source_files=[file_path],
             processed_files=[manifest_media_path] if manifest_media_path else [],
             caption_text=caption_text,
@@ -141,7 +147,7 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
         "analysis_source": analysis_source,
         "frames_used": len(frame_paths),
         "analysis_error": analysis_error,
-        "publish_status": PublishStatus.READY.value,
+        "publish_status": workflow_status.value,
         "providers": api.list_provider_names(),
     }
 
@@ -181,6 +187,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
 
     caption_payload = api.build_carousel_caption_payload(meta)
     caption_text = api.build_carousel_caption_block(meta, image_files)
+    workflow_status = _workflow_status_for_analysis(meta, analysis_source)
     legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, f"carousel-{int(time.time())}-image-batch.txt")
 
     if dry_run:
@@ -239,7 +246,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
                 post_id=post_id,
                 output_dir=output_dir,
                 post_type="image_carousel",
-                workflow_status=PublishStatus.READY,
+                workflow_status=workflow_status,
                 source_files=image_files,
                 processed_files=manifest_files,
                 caption_text=caption_text,
@@ -299,7 +306,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
         "year": meta.get("year"),
         "analysis_source": analysis_source,
         "analysis_error": analysis_error,
-        "publish_status": PublishStatus.READY.value,
+        "publish_status": workflow_status.value,
         "providers": api.list_provider_names(),
     }
 
@@ -314,3 +321,9 @@ def _rmtree_if_exists(root: Path, path: Path) -> None:
     candidate = resolve_output_under(root, path)
     if candidate.exists():
         shutil.rmtree(resolve_existing_under(root, candidate))
+
+
+def _workflow_status_for_analysis(meta: Dict, analysis_source: str) -> PublishStatus:
+    details = meta.get("_analysis", {}) if isinstance(meta.get("_analysis"), dict) else {}
+    provenance = details.get("provenance") or analysis_source
+    return PublishStatus.DRAFT if requires_manual_review(provenance) else PublishStatus.READY

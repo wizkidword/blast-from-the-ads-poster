@@ -173,6 +173,28 @@ class ReadinessTests(unittest.TestCase):
         self.assertTrue(direct.ready)
         self.assertTrue(updated["publishing"]["workflow_status"] == "ready")
 
+    def test_text_fallback_blocks_ready_until_a_saved_manual_review(self) -> None:
+        _root, manifest_path = self._workspace()
+        manifest = load_manifest(manifest_path)
+        manifest["analysis"]["provenance"] = "text_fallback"
+
+        blocked = readiness_report_for_manifest(manifest_path, "instagram", manifest=manifest)
+        self.assertIn("analysis_provenance", [check.code for check in blocked.blocking_failures])
+
+        reviewed = update_manifest_review(
+            manifest,
+            title="A title",
+            description="A useful final caption.",
+            hashtags=["retro"],
+            selected_providers=["instagram"],
+            workflow_status=PublishStatus.DRAFT.value,
+            note="Reviewed after text-only fallback",
+        )
+        approved = readiness_report_for_manifest(manifest_path, "instagram", manifest=reviewed)
+
+        self.assertEqual(reviewed["analysis"]["provenance"], "edited_after_generation")
+        self.assertTrue(approved.ready)
+
 
 if __name__ == "__main__":
     unittest.main()
