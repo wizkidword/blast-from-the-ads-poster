@@ -26,6 +26,11 @@ try:
 except ImportError:
     from scripts.run_ledger import normalize_run_log
 
+try:
+    from workspace_lock import WorkspaceLock
+except ImportError:
+    from scripts.workspace_lock import WorkspaceLock
+
 
 @dataclass
 class RequeuePlan:
@@ -122,6 +127,18 @@ def collect_failed_run_retry_plan(log_path: Path, inbox_dir: Path) -> FailedRunR
 
 
 def requeue_output_workspace(
+    workspace_dir: Path,
+    inbox_dir: Path,
+    processed_dir: Path,
+    base_dir: Path,
+    captions_dir: Path | None = None,
+) -> WorkspaceRequeueResult:
+    lock_root = resolve_existing_under(base_dir, base_dir)
+    with WorkspaceLock(lock_root, "requeue selected post"):
+        return _requeue_output_workspace(workspace_dir, inbox_dir, processed_dir, lock_root, captions_dir)
+
+
+def _requeue_output_workspace(
     workspace_dir: Path,
     inbox_dir: Path,
     processed_dir: Path,

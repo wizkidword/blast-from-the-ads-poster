@@ -26,6 +26,7 @@ class PackagingTests(unittest.TestCase):
             "ai_analysis",
             "app_metadata",
             "caption_builder",
+            "cancellable_subprocess",
             "cleanup",
             "desktop_requeue",
             "desktop_review",
@@ -44,6 +45,7 @@ class PackagingTests(unittest.TestCase):
             "run_ledger",
             "settings_store",
             "thumbnails",
+            "workspace_lock",
         ):
             self.assertIn(f'--hidden-import "{module_name}"', build_script)
 

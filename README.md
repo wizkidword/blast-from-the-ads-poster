@@ -18,6 +18,7 @@ Local Windows version of the social media batch processor.
 - Shows recent run details, failures, AI source status, and recovery actions in the desktop app
 - Creates posting-pack folders for manual export
 - Provides conservative cleanup tools for temp frames, old logs, old posting packs, and orphan output folders
+- Prevents processing, cleanup, and requeue actions from changing the same workspace at the same time
 - Writes structured v3 run ledgers with app version, command context, summary counts, and records
 - Tracks failed files across runs in a recovery queue
 - Validates posting packs against platform profiles for manual export, Instagram, TikTok, and Facebook
@@ -167,6 +168,8 @@ python scripts\workflow.py inbox --limit 10
 
 ## Notes
 
+- A processing, cleanup, or requeue action holds a workspace lock while it changes files. A second app or command will stop with the active operation details instead of touching the same media. In-progress inbox files live temporarily in `inbox/.processing/<run-id>/` and return to `inbox/` if they were not consumed.
+- Closing the desktop app during a run requests cancellation. It waits for the active AI or FFmpeg step to reach a safe stopping point before it closes.
 - All images in `inbox/` are grouped into one carousel caption for that run.
 - Videos are processed individually and each gets its own caption.
 - Image carousel runs also create one vertical MP4 slideshow in `tiktok/media/` for computer-based TikTok posting.

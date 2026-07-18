@@ -65,6 +65,11 @@ except ImportError:
     from scripts.process_inbox_social import run_inbox_processing
 
 try:
+    from workspace_lock import CancellationToken, WorkspaceBusyError
+except ImportError:
+    from scripts.workspace_lock import CancellationToken, WorkspaceBusyError
+
+try:
     from media_rules import is_supported_media_file, unique_destination
 except ImportError:
     from scripts.media_rules import is_supported_media_file, unique_destination
@@ -228,6 +233,10 @@ class SocialBatchApp:
         self.review_items = []
         self.selected_manifest_path: Path | None = None
         self.provider_vars: dict[str, BooleanVar] = {}
+        self.cancellation_token: CancellationToken | None = None
+        self.accepting_work = True
+        self.shutting_down = False
+        self.root.protocol("WM_DELETE_WINDOW", self.request_shutdown)
 
         self._build_ui()
         self.refresh_status()
@@ -708,6 +717,9 @@ class SocialBatchApp:
                 context.project_dir,
                 captions_dir=context.captions_dir,
             )
+        except WorkspaceBusyError as exc:
+            messagebox.showinfo("Workspace busy", str(exc))
+            return
         except Exception as exc:
             messagebox.showerror("Requeue failed", f"Could not requeue selected post:\n{exc}")
             return
@@ -766,7 +778,11 @@ class SocialBatchApp:
         if not confirmed:
             self.log(preview)
             return
-        result = execute_cleanup(cleanup_plan)
+        try:
+            result = execute_cleanup(cleanup_plan)
+        except WorkspaceBusyError as exc:
+            messagebox.showinfo("Workspace busy", str(exc))
+            return
         self.log(f"Safe cleanup deleted {result.deleted_count} item(s); {result.failed_count} failed.")
         self.refresh_status()
         self.refresh_run_history()
@@ -930,13 +946,17 @@ class SocialBatchApp:
         if not confirmed:
             return
 
-        result = execute_requeue_plan(
-            plan,
-            context.inbox_dir,
-            context.captions_dir,
-            context.project_dir,
-            processed_dir=context.processed_dir,
-        )
+        try:
+            result = execute_requeue_plan(
+                plan,
+                context.inbox_dir,
+                context.captions_dir,
+                context.project_dir,
+                processed_dir=context.processed_dir,
+            )
+        except WorkspaceBusyError as exc:
+            messagebox.showinfo("Workspace busy", str(exc))
+            return
 
         self.refresh_status()
         self.refresh_review_queue()
@@ -947,6 +967,9 @@ class SocialBatchApp:
             self.log(f"Removed {result.removed_captions} old caption file(s) so the next run starts clean.")
 
     def _run_workflow(self, action: str, dry_run: bool = False, target_files: list[Path] | None = None) -> None:
+        if not self.accepting_work:
+            messagebox.showinfo("Closing", "The app is waiting for the current operation to stop.")
+            return
         if self.running:
             messagebox.showinfo("Busy", "A batch is already running.")
             return
@@ -958,13 +981,25 @@ class SocialBatchApp:
             return
 
         self.running = True
+        self.cancellation_token = CancellationToken()
         self._set_buttons_enabled(False)
         self.log("")
         self.log(format_workflow_label(action, limit, dry_run, target_files))
-        thread = threading.Thread(target=self._worker, args=(action, limit, dry_run, target_files), daemon=True)
+        thread = threading.Thread(
+            target=self._worker,
+            args=(action, limit, dry_run, target_files, self.cancellation_token),
+            daemon=True,
+        )
         thread.start()
 
-    def _worker(self, action: str, limit: int | None, dry_run: bool, target_files: list[Path] | None = None) -> None:
+    def _worker(
+        self,
+        action: str,
+        limit: int | None,
+        dry_run: bool,
+        target_files: list[Path] | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> None:
         context = ensure_project_dirs(self.context)
         writer = QueueWriter(self.log_queue)
         exit_code = 0
@@ -976,7 +1011,11 @@ class SocialBatchApp:
                     dry_run=dry_run,
                     target_files=target_files,
                     setup_check_func=lambda: setup_check(context),
-                    run_inbox_processing_func=lambda **kwargs: run_inbox_processing(**kwargs, context=context),
+                    run_inbox_processing_func=lambda **kwargs: run_inbox_processing(
+                        **kwargs,
+                        context=context,
+                        cancellation_token=cancellation_token,
+                    ),
                     has_failed_results_func=has_failed_results,
                 )
         except Exception as exc:
@@ -994,15 +1033,32 @@ class SocialBatchApp:
                     self.log(payload.rstrip())
                 elif kind == "done":
                     self.running = False
+                    self.cancellation_token = None
                     self._set_buttons_enabled(True)
                     self.refresh_status()
                     self.refresh_run_history()
                     self.refresh_recovery_queue()
                     self.refresh_review_queue(select_path=self.selected_manifest_path)
                     self.log("Finished." if payload == "0" else f"Finished with exit code {payload}.")
+                    if self.shutting_down:
+                        self.root.after_idle(self.root.destroy)
+                        return
         except Empty:
             pass
-        self.root.after(150, self._drain_log_queue)
+        if not self.shutting_down or self.running:
+            self.root.after(150, self._drain_log_queue)
+
+    def request_shutdown(self) -> None:
+        """Stop accepting new work and wait for the active safe boundary before closing."""
+
+        self.accepting_work = False
+        if not self.running:
+            self.root.destroy()
+            return
+        self.shutting_down = True
+        if self.cancellation_token is not None:
+            self.cancellation_token.request()
+        self.log("Cancellation requested. The app will close after the current safe step finishes.")
 
     def _set_buttons_enabled(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"

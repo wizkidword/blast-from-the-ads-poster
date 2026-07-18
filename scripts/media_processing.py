@@ -4,7 +4,12 @@ from __future__ import annotations
 import subprocess
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
+
+try:
+    from cancellable_subprocess import run_command
+except ImportError:
+    from scripts.cancellable_subprocess import run_command
 
 
 INSTAGRAM_VIDEO_WIDTH = 1080
@@ -38,7 +43,12 @@ def get_media_dimensions(input_path: Path) -> Optional[tuple[int, int]]:
     return int(match.group(1)), int(match.group(2))
 
 
-def convert_video_to_vertical(input_path: Path, output_path: Path) -> bool:
+def convert_video_to_vertical(
+    input_path: Path,
+    output_path: Path,
+    *,
+    cancellation_check: Callable[[], None] | None = None,
+) -> bool:
     scale_filter = (
         f"scale={INSTAGRAM_VIDEO_WIDTH}:{INSTAGRAM_VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
         f"pad={INSTAGRAM_VIDEO_WIDTH}:{INSTAGRAM_VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,"
@@ -68,7 +78,7 @@ def convert_video_to_vertical(input_path: Path, output_path: Path) -> bool:
         str(output_path),
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
+        result = run_command(cmd, timeout=600, cancellation_check=cancellation_check)
     except FileNotFoundError:
         return False
     return (
@@ -78,7 +88,12 @@ def convert_video_to_vertical(input_path: Path, output_path: Path) -> bool:
     )
 
 
-def convert_image_to_instagram(input_path: Path, output_path: Path) -> bool:
+def convert_image_to_instagram(
+    input_path: Path,
+    output_path: Path,
+    *,
+    cancellation_check: Callable[[], None] | None = None,
+) -> bool:
     scale_filter = (
         "scale=1080:1350:force_original_aspect_ratio=decrease,"
         "pad=1080:1350:(ow-iw)/2:(oh-ih)/2:black"
@@ -95,13 +110,18 @@ def convert_image_to_instagram(input_path: Path, output_path: Path) -> bool:
         str(output_path),
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=False)
+        result = run_command(cmd, timeout=180, cancellation_check=cancellation_check)
     except FileNotFoundError:
         return False
     return result.returncode == 0 and output_path.exists()
 
 
-def create_carousel_video_from_images(image_paths: List[Path], output_path: Path) -> bool:
+def create_carousel_video_from_images(
+    image_paths: List[Path],
+    output_path: Path,
+    *,
+    cancellation_check: Callable[[], None] | None = None,
+) -> bool:
     if not image_paths:
         return False
 
@@ -139,7 +159,7 @@ def create_carousel_video_from_images(image_paths: List[Path], output_path: Path
         str(output_path),
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
+        result = run_command(cmd, timeout=600, cancellation_check=cancellation_check)
     except FileNotFoundError:
         return False
     finally:

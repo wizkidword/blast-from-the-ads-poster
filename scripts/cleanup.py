@@ -11,6 +11,11 @@ try:
 except ImportError:
     from scripts.safe_paths import UnsafePathError, resolve_existing_under
 
+try:
+    from workspace_lock import WorkspaceLock
+except ImportError:
+    from scripts.workspace_lock import WorkspaceLock
+
 
 @dataclass(frozen=True)
 class CleanupSettings:
@@ -62,12 +67,17 @@ def plan_cleanup(base_dir: Path, settings: CleanupSettings | None = None, now: f
 
 
 def execute_cleanup(plan: CleanupPlan) -> CleanupResult:
-    deleted: list[Path] = []
-    failed = 0
     try:
         base_dir = resolve_existing_under(plan.base_dir, plan.base_dir)
     except UnsafePathError:
         return CleanupResult(deleted_count=0, failed_count=len(plan.items), deleted_paths=())
+    with WorkspaceLock(base_dir, "safe cleanup"):
+        return _execute_cleanup(plan, base_dir)
+
+
+def _execute_cleanup(plan: CleanupPlan, base_dir: Path) -> CleanupResult:
+    deleted: list[Path] = []
+    failed = 0
     for item in plan.items:
         try:
             target = resolve_existing_under(base_dir, item.path)

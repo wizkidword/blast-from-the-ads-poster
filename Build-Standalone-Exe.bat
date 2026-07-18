@@ -31,6 +31,7 @@ echo Building standalone executable...
 --hidden-import "ai_analysis" ^
 --hidden-import "blast_workflow" ^
 --hidden-import "caption_builder" ^
+--hidden-import "cancellable_subprocess" ^
 --hidden-import "cleanup" ^
 --hidden-import "desktop_requeue" ^
 --hidden-import "desktop_review" ^
@@ -54,6 +55,7 @@ echo Building standalone executable...
   --hidden-import "run_history" ^
   --hidden-import "settings_store" ^
   --hidden-import "thumbnails" ^
+  --hidden-import "workspace_lock" ^
   "scripts\social_batch_app.py"
 if errorlevel 1 goto :fail
 

@@ -52,3 +52,17 @@ If the app reports that one of these JSON documents is corrupt or uses an
 unknown schema version, stop before requeueing or editing it and restore or
 repair that specific file from a known-good copy. The app will not silently
 replace corrupted settings with defaults.
+
+## Workspace coordination
+
+Processing, cleanup, and requeue operations use one non-blocking, OS-backed
+workspace lock. The small `.workspace.lock` file holds the actual lock and its
+ignored `.workspace.lock.json` companion identifies the active PID, run ID,
+start time, and operation. The metadata alone never blocks a new operation: a
+stale record is replaced as soon as the OS lock can be acquired.
+
+Processing atomically moves selected inbox files into
+`inbox/.processing/<run-id>/` before it begins. Unconsumed files are returned
+to the inbox during shutdown or failure. The desktop window requests
+cancellation when closed and waits for the active safe boundary; FFmpeg work
+and OpenAI retry waits observe that request.

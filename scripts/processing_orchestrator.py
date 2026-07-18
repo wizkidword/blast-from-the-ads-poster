@@ -28,14 +28,17 @@ except ImportError:
 
 def process_video_file(file_path: Path, api, dry_run: bool = False) -> Dict:
     print(f"Processing video: {file_path.name}")
+    api.check_cancelled()
     frame_paths = api.extract_video_frames(file_path)
     try:
+        api.check_cancelled()
         return process_video_file_with_frames(file_path, frame_paths, api=api, dry_run=dry_run)
     finally:
         api.cleanup_temp_files(frame_paths)
 
 
 def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api, dry_run: bool = False) -> Dict:
+    api.check_cancelled()
     prompt = (
         f"{api.PROMPT_TEMPLATE}\n"
         f"Filename context: {file_path.name}\n"
@@ -47,6 +50,7 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
         frame_paths,
         api.infer_meta_from_filename(file_path),
     )
+    api.check_cancelled()
 
     if meta is None:
         print(f"   ERROR: AI analysis failed for {file_path.name}")
@@ -73,6 +77,7 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
         output_dir = None
         processed_media_path = None
     else:
+        api.check_cancelled()
         post_id, output_dir = api.create_output_workspace("video", [file_path])
         caption_path = resolve_output_under(api.OUTPUTS_DIR, output_dir / "caption.txt")
         caption_path = resolve_output_under(api.OUTPUTS_DIR, caption_path)
@@ -80,6 +85,7 @@ def process_video_file_with_frames(file_path: Path, frame_paths: List[Path], api
         legacy_caption_path = resolve_output_under(api.CAPTIONS_DIR, legacy_caption_path)
         atomic_write_text(legacy_caption_path, caption_text)
         processed_media_path = api.handle_video_conversion_and_move(file_path, api.instagram_video_destination(file_path))
+        api.check_cancelled()
         if processed_media_path is None:
             _unlink_if_exists(api.OUTPUTS_DIR, caption_path)
             _unlink_if_exists(api.CAPTIONS_DIR, legacy_caption_path)
@@ -144,6 +150,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
     if not image_files:
         return None
 
+    api.check_cancelled()
     print(f"Processing {len(image_files)} image(s) as one carousel batch")
     filenames_text = "\n".join(f"- {path.name}" for path in image_files)
     prompt = (
@@ -158,6 +165,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
         image_files,
         api.infer_carousel_meta_from_files(image_files),
     )
+    api.check_cancelled()
     if meta is None:
         print("   ERROR: AI analysis failed for image carousel batch")
         if analysis_error:
@@ -182,6 +190,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
         output_dir = None
         processed_files: List[Path] = []
     else:
+        api.check_cancelled()
         post_id, output_dir = api.create_output_workspace("image-carousel", image_files)
         caption_path = resolve_output_under(api.OUTPUTS_DIR, output_dir / "caption.txt")
         processed_files = []
@@ -190,6 +199,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
         try:
             for file_path in image_files:
                 print(f"Processing image: {file_path.name}")
+                api.check_cancelled()
                 processed_path = api.handle_image_conversion_and_move(file_path, api.PROCESSED_DIR / file_path.name, dry_run=dry_run)
                 if processed_path is None:
                     raise RuntimeError(f"Image processing did not produce an output for {file_path.name}")
@@ -208,6 +218,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
                 api.carousel_video_destination(post_id),
                 dry_run=dry_run,
             )
+            api.check_cancelled()
             if carousel_video_path is None:
                 raise RuntimeError("Carousel video creation did not produce an output")
             manifest_files.append(
@@ -268,6 +279,7 @@ def process_image_batch(image_files: List[Path], api, dry_run: bool = False) -> 
     if dry_run:
         for file_path in image_files:
             print(f"Processing image: {file_path.name}")
+            api.check_cancelled()
             api.handle_image_conversion_and_move(file_path, file_path, dry_run=dry_run)
         carousel_video_path = None
 
