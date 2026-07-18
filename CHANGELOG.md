@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.2.0 - 2026-07-18
+
+- Added one shared readiness report for Review, Ready transitions, and posting-pack export.
+- Validates the exact rendered caption plus staged media presence, actual type/container, dimensions, size, duration, and codec against platform profiles.
+- Blocks unsafe Ready transitions and records explicit readiness overrides with an audit reason.
+
 ## 4.1.0 - 2026-07-18
 
 - Added actual-media preflight checks for file contents, image dimensions, video duration, stream metadata, and conservative resource limits.

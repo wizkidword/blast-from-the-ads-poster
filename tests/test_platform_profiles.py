@@ -57,6 +57,21 @@ class PlatformProfilesTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.issues, ())
 
+    def test_instagram_ignores_tiktok_only_carousel_video(self) -> None:
+        manifest = {
+            "post_type": "image_carousel",
+            "content": {"description": "A useful caption", "hashtags": ["retro"]},
+            "media_files": [
+                {"filename": f"scan-{index}.jpg", "role": "carousel_item", "width": 1080, "height": 1350}
+                for index in range(1, 11)
+            ]
+            + [{"filename": "carousel-video.mp4", "role": "carousel_video", "width": 1080, "height": 1920}],
+        }
+
+        result = validate_manifest_for_platform(manifest, "instagram")
+
+        self.assertTrue(result.ok)
+
 
 if __name__ == "__main__":
     unittest.main()

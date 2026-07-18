@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 try:
     from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
@@ -35,8 +35,8 @@ except ImportError:
     )
 
 
-MANIFEST_SCHEMA_VERSION = 2
-_SUPPORTED_MANIFEST_SCHEMA_VERSIONS = {1, MANIFEST_SCHEMA_VERSION}
+MANIFEST_SCHEMA_VERSION = 3
+_SUPPORTED_MANIFEST_SCHEMA_VERSIONS = {1, 2, MANIFEST_SCHEMA_VERSION}
 
 
 def utc_now_iso() -> str:
@@ -164,6 +164,7 @@ def build_initial_publishing_state(default_status: PublishStatus = PublishStatus
         "providers": registry.initial_provider_states(),
         "platform_overrides": {},
         "history": [],
+        "readiness_overrides": [],
     }
 
 
@@ -252,9 +253,14 @@ def ensure_manifest_defaults(manifest: Dict[str, Any]) -> Dict[str, Any]:
     publishing.setdefault("selected_providers", [])
     publishing.setdefault("platform_overrides", {})
     publishing.setdefault("history", [])
+    publishing.setdefault("readiness_overrides", [])
     if not isinstance(publishing["selected_providers"], list):
         raise InvalidSchemaError("Post manifest publishing.selected_providers must be a list")
-    if not isinstance(publishing["platform_overrides"], dict) or not isinstance(publishing["history"], list):
+    if (
+        not isinstance(publishing["platform_overrides"], dict)
+        or not isinstance(publishing["history"], list)
+        or not isinstance(publishing["readiness_overrides"], list)
+    ):
         raise InvalidSchemaError("Post manifest publishing fields have an invalid shape")
 
     provider_states = publishing.setdefault("providers", {})
@@ -338,6 +344,8 @@ def update_manifest_review(
     selected_providers: List[str],
     workflow_status: str,
     note: str,
+    readiness_reports: Sequence[Any] | None = None,
+    readiness_validator: Callable[[Dict[str, Any]], Sequence[Any]] | None = None,
 ) -> Dict[str, Any]:
     manifest = ensure_manifest_defaults(manifest)
     manifest["content"]["title"] = title.strip()
@@ -346,6 +354,16 @@ def update_manifest_review(
 
     provider_states = manifest["publishing"]["providers"]
     cleaned_selected = [name for name in selected_providers if name in provider_states]
+    if workflow_status == PublishStatus.READY.value:
+        if readiness_reports is None and readiness_validator is not None:
+            readiness_reports = readiness_validator(manifest)
+        if readiness_reports is None:
+            raise ValueError("Marking a post Ready requires a current readiness report")
+        try:
+            from readiness import require_ready_reports
+        except ImportError:
+            from scripts.readiness import require_ready_reports
+        require_ready_reports(readiness_reports)
     manifest["publishing"]["selected_providers"] = cleaned_selected
     manifest["publishing"]["workflow_status"] = workflow_status
     manifest["publishing"]["history"].append(

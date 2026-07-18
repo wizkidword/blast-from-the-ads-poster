@@ -13,9 +13,9 @@ except ImportError:
     from scripts.publishing import format_hashtag_block, load_manifest
 
 try:
-    from platform_profiles import format_platform_report
+    from readiness import format_readiness_report, format_readiness_reports, readiness_reports_for_manifest, render_final_caption, require_ready_reports
 except ImportError:
-    from scripts.platform_profiles import format_platform_report
+    from scripts.readiness import format_readiness_report, format_readiness_reports, readiness_reports_for_manifest, render_final_caption, require_ready_reports
 
 try:
     from safe_paths import UnsafePathError, require_plain_filename, resolve_existing_under, resolve_output_under
@@ -44,10 +44,12 @@ def create_posting_pack(
     post_id = str(manifest.get("post_id") or manifest_path.parent.name)
     safe_post_id = _safe_folder_name(post_id)
     safe_platforms = tuple(require_plain_filename(platform) for platform in platforms)
-    caption_text = _caption_text(manifest, manifest_path, project_root, captions_root)
     media_sources = [resolve_existing_under(project_root, source) for source in _media_sources(manifest, manifest_path, project_root)]
     if any(not source.is_file() for source in media_sources):
         raise UnsafePathError("Manifest media entry is not a regular file")
+    readiness_reports = readiness_reports_for_manifest(manifest_path, safe_platforms, manifest=manifest)
+    require_ready_reports(readiness_reports)
+    caption_text = render_final_caption(manifest)
 
     # Complete the manifest-derived preflight before replacing an existing pack
     # or creating a new export directory.
@@ -66,7 +68,7 @@ def create_posting_pack(
 
     notes_path = resolve_output_under(pack_dir, "posting-notes.txt")
     notes_path.write_text(_posting_notes(manifest), encoding="utf-8")
-    _write_platform_files(pack_dir, manifest, caption_text, safe_platforms)
+    _write_platform_files(pack_dir, caption_text, readiness_reports)
 
     manifest_destination = resolve_output_under(pack_dir, "post_manifest.json")
     shutil.copy2(resolve_existing_under(outputs_root, manifest_path), manifest_destination)
@@ -87,23 +89,16 @@ def create_posting_pack(
     )
 
 
-def _write_platform_files(pack_dir: Path, manifest: dict[str, Any], caption_text: str, platforms: tuple[str, ...]) -> None:
+def _write_platform_files(pack_dir: Path, caption_text: str, reports) -> None:
     platform_dir = resolve_output_under(pack_dir, "platforms")
     platform_dir.mkdir(parents=True, exist_ok=True)
-    report = format_platform_report(manifest, platforms)
-    resolve_output_under(platform_dir, "platform-validation.txt").write_text(report, encoding="utf-8")
-    for platform in platforms:
-        platform_name = require_plain_filename(platform)
+    resolve_output_under(platform_dir, "platform-validation.txt").write_text(format_readiness_reports(reports), encoding="utf-8")
+    for report in reports:
+        platform_name = require_plain_filename(report.platform)
         resolve_output_under(platform_dir, f"{platform_name}-caption.txt").write_text(caption_text, encoding="utf-8")
-        notes = format_platform_report(manifest, (platform,))
-        resolve_output_under(platform_dir, f"{platform_name}-notes.txt").write_text(notes, encoding="utf-8")
-
-
-def _caption_text(manifest: dict[str, Any], manifest_path: Path, project_root: Path, captions_root: Path | None) -> str:
-    caption_path = _resolve_manifest_path(manifest_path, manifest.get("paths", {}).get("caption_path"), project_root)
-    if caption_path and caption_path.exists():
-        return resolve_existing_under(project_root, caption_path).read_text(encoding="utf-8")
-    return str(manifest.get("content", {}).get("caption_text") or manifest.get("content", {}).get("description") or "")
+        resolve_output_under(platform_dir, f"{platform_name}-notes.txt").write_text(
+            format_readiness_report(report), encoding="utf-8"
+        )
 
 
 def _media_sources(manifest: dict[str, Any], manifest_path: Path, project_root: Path) -> list[Path]:
