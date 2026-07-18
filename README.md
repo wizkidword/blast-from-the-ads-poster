@@ -1,221 +1,83 @@
 # Blast From the Ads
 
-Local Windows version of the social media batch processor.
+[![Windows tests](https://github.com/wizkidword/blast-from-the-ads-poster/actions/workflows/unit-tests.yml/badge.svg?branch=main)](https://github.com/wizkidword/blast-from-the-ads-poster/actions/workflows/unit-tests.yml)
 
-## What It Does
+**A local Windows desktop workflow for turning ad media into reviewable, platform-ready social posting packs.**
 
-- Loads images and videos into `inbox/`
-- Converts videos to 1080x1920 full-vertical portrait output
-- Converts images to 1080x1350 portrait output
-- Uses OpenAI vision models to analyze media and write titles, captions, and hashtags
-- Treats all images from one run as a single carousel/gallery caption
-- Creates one TikTok-ready MP4 slideshow for each image carousel while still keeping the converted images
-- Writes caption exports to the configured caption export folder
-- Keeps converted media in the configured processed media folder for the original posting workflow
-- Creates one structured post workspace per output in `outputs/`
-- Stores post manifests, ready-to-publish media, and publish-state scaffolding for v2
-- Includes a desktop review queue for editing copy and marking posts draft or ready
-- Shows recent run details, failures, AI source status, and recovery actions in the desktop app
-- Creates complete, integrity-checked posting-pack folders for manual export
-- Provides conservative cleanup tools for temp frames, old logs, old posting packs, and orphan output folders
-- Prevents processing, cleanup, and requeue actions from changing the same workspace at the same time
-- Writes structured v3 run ledgers with app version, command context, summary counts, and records
-- Tracks failed files across runs in a recovery queue
-- Validates posting packs against platform profiles for manual export, Instagram, TikTok, and Facebook
-- Supports non-secret `settings.json` preferences while keeping `.env` for secrets only
-- Checks actual media contents, dimensions, durations, and resource limits before analysis or conversion
-- Uses one visible readiness checklist before a post becomes Ready or a posting pack is exported
-- Uses a V4 tabbed desktop interface with Process, Review, Recovery, and Settings work areas
+Bring in images or video, create tailored draft copy, review the result, and export an integrity-checked pack for manual posting. The app helps organize the work; it does **not** publish to social platforms on your behalf.
 
-## Quick Start
+![Blast From the Ads workflow overview](docs/screenshots/workflow-preview.svg)
 
-1. Copy `.env.example` to `.env`
-2. Copy `settings.example.json` to `settings.json` if you want non-default preferences
-3. Add your `OPENAI_API_KEY`
-4. Double-click `Launch-Blast-From-The-Ads.bat`
-5. Use the desktop app to add files and run a batch
+## What it does
 
-## Project Folders
+1. **Bring in media** — add images or video to a local inbox.
+2. **Process locally** — prepare vertical media, build a post workspace, and optionally create AI-assisted copy.
+3. **Review deliberately** — edit captions, check platform readiness, resolve failures, and mark work ready only when you choose.
+4. **Export with confidence** — create a posting pack with hashes, media details, and platform notes for manual upload.
 
-- `inbox/` - new files to process
-- `captions/` or configured `captions_dir` - generated caption text files
-- `!processed/` or configured `processed_dir` - converted videos and images ready for the original posting workflow
-- `outputs/` - one folder per generated post with `post_manifest.json`, `caption.txt`, and staged media
-- `logs/` - JSON run summaries
-- `temp/` - temporary extracted video frames
-- `exports/posting-packs/` - optional manual posting packs created from reviewed posts
-- `settings.example.json` - safe-to-share defaults; copy it to ignored `settings.json` for local preferences
+## Designed for control
 
-## Architecture
+- **Local-first workflow:** your inbox, working files, captions, and export packs stay on your Windows machine.
+- **AI is optional:** disable it to create editable local drafts without an API key. When enabled, the app sends only bounded analysis copies to the configured provider.
+- **Manual publishing:** there is no background publishing or social-account connection.
+- **Safer media handling:** preflight checks, private staging, workspace locks, run ledgers, and recovery tools help protect active work.
+- **Verifiable handoffs:** posting packs include an integrity manifest, file hashes, and platform-specific validation notes.
 
-The daily entry point is still `scripts/process_inbox_social.py`, but it is now a small compatibility facade. The heavier responsibilities live in focused modules:
+## Quick start
 
-- `ai_analysis.py` - OpenAI vision prompts, retries, JSON parsing, and filename fallbacks
-- `caption_builder.py` - copy blocks, hashtag normalization, and carousel captions
-- `manifest_service.py` - output workspace ids, manifest writing, and media records
-- `processing_orchestrator.py` - video and image-carousel processing flow
-- `run_ledger.py` and `run_history.py` - structured run logs plus legacy log compatibility
-- `recovery_queue.py`, `platform_profiles.py`, `settings_store.py`, and `thumbnails.py` - V3 workstation helpers
-- `desktop_status.py`, `desktop_review.py`, `desktop_requeue.py`, and `desktop_workflow.py` - non-visual desktop behavior extracted from the Tkinter shell
-- `desktop_theme.py` and `desktop_settings.py` - V4 visual-system metadata and settings form validation
-
-## V4 Desktop UI
-
-The desktop app is organized into four tabs:
-
-- `Process` - daily inbox actions, folder shortcuts, status cards, and live log
-- `Review` - manifest queue, editor, destination checks, bulk ready, and posting packs
-- `Recovery` - run history, run details, and targeted failed-file retry actions
-- `Settings` - non-secret preferences saved to `settings.json`
-
-The Settings tab never displays your OpenAI API key. Keep secrets in `.env`.
-
-## Output Workspace
-
-Each successful post now gets its own folder in `outputs/`:
-
-- `post_manifest.json` - structured metadata, analysis, media paths, and publish-state model
-- `caption.txt` - canonical copy block for that post
-- `media/` - resized video files, or image-carousel JPGs for normal carousel posting
-- `tiktok/media/` - one combined MP4 slideshow for image-carousel posts
-
-The desktop app still writes plain-text caption exports to the configured caption export folder for quick copy/paste use.
-
-## Run Details / Recovery
-
-The desktop app includes a run recovery panel that lets you:
-
-- inspect the latest inbox run without opening JSON manually
-- see processed/failed counts, media count, analysis source, and errors
-- open the selected run log
-- retry only failed files that are still present in `inbox/`
-- retry all available failures, only failed videos, or only failed images from the recovery queue
-
-## Review Queue
-
-The desktop app now includes a review queue that lets you:
-
-- open generated post workspaces from `outputs/`
-- filter by workflow status
-- search by title, brand, year, media name, or post id
-- preview caption, hashtags, media, and extracted details
-- edit title, description, and hashtags
-- choose destination placeholders for upcoming publishers
-- mark each post as `draft` or `ready`
-- create a posting pack under `exports/posting-packs/`
-- requeue only the selected post when you want to regenerate it
-- bulk mark the currently visible filtered queue as ready
-- filter stale drafts using the retention value from `settings.json`
-
-Saving from the review queue updates both the manifest and the caption export files.
-
-## Readiness Checks
-
-`Ready` now has one concrete meaning across the Review queue and posting-pack export. The app renders the exact caption first, then checks caption length, hashtag count, referenced files, actual media type/container, dimensions, size, duration, codec, and the selected platform's media-count limits.
-
-The Review context shows every pass, warning, and blocking item. A blocked post remains a draft until the source files or copy are corrected. An explicit code-level override is recorded with its reason and timestamp for the rare cases where a maintainer deliberately accepts a known exception.
-
-## Safe Cleanup
-
-The `Safe Cleanup` button previews and removes only retention targets:
-
-- stale files in `temp/frames`
-- run logs older than the retention window
-- posting packs older than the retention window
-- orphaned `outputs/` folders that do not contain a manifest
-
-It does not touch `inbox/` or `!processed/`.
-
-## Platform-Aware Posting Packs
-
-Posting packs now build in a private temporary sibling folder. The app copies every preflighted source, checks its hash and size, writes `pack-integrity.json`, verifies the complete pack, and only then replaces an existing pack. A failed export leaves the previous valid pack untouched. The integrity manifest records ordered upload filenames, byte sizes, SHA-256 values, source-manifest/post ID provenance, and platform-profile versions.
-
-Packs also include a `platforms/` folder with validation notes and caption variants. The current profiles are:
-
-- `manual_export`
-- `instagram`
-- `tiktok`
-- `facebook`
-
-Validation checks caption length, hashtag count, carousel size, media extensions, and vertical-media expectations where relevant.
-
-## Settings
-
-Copy `settings.example.json` to ignored `settings.json`, then edit it or use the
-Settings tab for non-secret preferences. Secrets still belong only in `.env`.
-
-```json
-{
-  "openai_model": "gpt-5.4-nano",
-  "ai_analysis_enabled": true,
-  "allow_generic_fallback_captions": false,
-  "default_providers": ["manual_export"],
-  "logs_retention_days": 90,
-  "posting_pack_retention_days": 30,
-  "orphan_output_retention_days": 14,
-  "stale_draft_days": 30,
-  "preferred_platforms": ["manual_export", "instagram", "facebook"],
-  "captions_dir": "",
-  "processed_dir": "",
-  "max_media_file_bytes": 1000000000,
-  "max_image_pixels": 40000000,
-  "max_image_dimension": 10000,
-  "max_video_duration_seconds": 900,
-  "max_carousel_images": 20,
-  "max_analysis_payload_bytes": 100000000,
-  "max_analysis_images": 8,
-  "max_analysis_image_dimension": 1600,
-  "max_analysis_request_bytes": 12000000,
-  "max_analysis_video_frames": 8
-}
-```
-
-Leave `captions_dir` or `processed_dir` blank to use the local `captions/` and `!processed/` folders.
-
-## AI analysis and privacy
-
-When AI analysis is enabled, the app creates temporary lower-resolution copies and sends only those bounded copies to the configured AI provider. `store: false` asks the provider not to retain a response, but it does not make the request offline. The Review panel records whether copy came from vision, a text fallback, a generic fallback, a local manual draft, or a later edit.
-
-Set `ai_analysis_enabled` to `false` (or `SKIP_AI_ANALYSIS=true`) to keep media local and create editable manual drafts without an API key. Those drafts, along with text-only and generic fallbacks, stay in Draft until you save a review and then mark them Ready. Successful AI results are cached locally under `cache/ai-analysis/` using source content, model, prompt version, and request settings; the cache is ignored by Git.
-
-## Media Preflight
-
-Before a live run starts AI analysis or FFmpeg conversion, the app checks the media file itself instead of trusting its name. Empty, malformed, oversized, incorrectly typed, overlong, and unsupported animated uploads are left in `inbox/` with a clear failure record. A real image or video whose filename has an unexpected extension can still be accepted when its contents are recognized.
-
-The conservative limits in the Settings tab (or the `settings.json` fields above) are non-secret and apply to each live run. Animated GIF and WebP files are deliberately rejected; export a still image first. Slideshow inputs are copied into a private, randomly named work folder before FFmpeg runs, so filenames cannot alter FFmpeg's concat instructions.
-
-## Command Line
+**You need:** Windows 10 or 11, Python 3.13, and FFmpeg/FFprobe available on `PATH` for real media processing.
 
 ```powershell
-python scripts\workflow.py setup
-python scripts\workflow.py inbox
-python scripts\workflow.py inbox --dry-run
-python scripts\workflow.py inbox --limit 10
-python scripts\workflow.py retry
-python scripts\workflow.py retry --run inbox-run-<run-id>.json --mode videos
+Copy-Item .env.example .env
+Copy-Item settings.example.json settings.json
+.\Launch-Blast-From-The-Ads.bat
 ```
 
-## Standalone EXE
+Add an `OPENAI_API_KEY` to `.env` only if you want AI-assisted analysis. To run entirely locally, set `ai_analysis_enabled` to `false` in `settings.json` (or set `SKIP_AI_ANALYSIS=true` in `.env`).
 
-- Run `Build-Standalone-Exe.bat` to package the app as a standalone Windows executable.
-- Run `Verify-Release.bat` to run tests, compile checks, rebuild, smoke-test the EXE, and check package secrets.
-- The finished build lands in `dist\BlastFromTheAds.exe`
-- A portable handoff folder lands in `dist\BlastFromTheAds-package\`
-- The build copies `.env.example` and `settings.example.json`, but never your private `.env` or `settings.json`.
-- `dist\release-metadata\` contains `SHA256SUMS.txt` and an SPDX SBOM for the build.
-- GitHub Actions rebuilds the EXE from the pinned Windows Python 3.13 lock and runs its headless `--smoke-test` mode.
+For an isolated development setup, tests, and the reproducible Windows package build, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## Notes
+## Everyday workflow
 
-- A processing, cleanup, or requeue action holds a workspace lock while it changes files. A second app or command will stop with the active operation details instead of touching the same media. In-progress inbox files live temporarily in `inbox/.processing/<run-id>/` and return to `inbox/` if they were not consumed.
-- Each live media job is staged privately first. A completed workspace appears only after its caption, manifest, and media pass validation. Before that point, a failure returns the byte-for-byte original to `inbox/`; after that point, the original is retained in `inbox/.archive/<run-id>/` and any incomplete archival work resumes safely at the next inbox run.
-- The Recovery tab, selected-run retry, and `workflow.py retry` all use the same safe retry plan. Duplicate entries are retried once, missing files are skipped, and a ledger that is malformed, unsupported, or already has a committed workspace is quarantined from automated retry while its original log remains available for inspection.
-- Closing the desktop app during a run requests cancellation. It waits for the active AI or FFmpeg step to reach a safe stopping point before it closes.
-- All images in `inbox/` are grouped into one carousel caption for that run.
-- Videos are processed individually and each gets its own caption.
-- Image carousel runs also create one vertical MP4 slideshow in `tiktok/media/` for computer-based TikTok posting.
-- `ffmpeg` must be available on Windows `PATH`.
-- `ffprobe` is also required; it verifies source and generated media before a successful run can commit output.
-- The app now expects a real OpenAI API key.
-- If OpenAI is unavailable, files stay in `inbox/` and the run logs the AI failure instead of generating weak generic captions.
-- Set `ALLOW_GENERIC_FALLBACK_CAPTIONS=true` in `.env` only if you explicitly want generic emergency captions.
+| Stage | What happens |
+| --- | --- |
+| Process | The desktop app inspects media, prepares output, and records the run. |
+| Review | Edit copy, inspect readiness results, and retry only the files that failed. |
+| Ready | A shared checklist validates captions and actual media against the chosen platform profile. |
+| Export | Create a complete, integrity-checked folder for a human to upload. |
+
+Each completed post receives its own workspace under `outputs/`, including its manifest, canonical caption, prepared media, and state. Caption exports and processed-media folders can be configured in your ignored `settings.json`; leave them blank to use the local defaults.
+
+## Privacy and AI
+
+AI analysis is opt-in and is never a requirement for processing. With it enabled, Blast From the Ads prepares lower-resolution, bounded copies for analysis and records where each draft came from (vision, fallback, manual, or later edit). `store: false` requests that the provider not retain a response, but the request is still an online provider request. See [DEVELOPMENT.md](DEVELOPMENT.md) for the operational details.
+
+Do not commit `.env`, `settings.json`, source media, generated outputs, logs, or posting packs. The repository includes safe templates instead.
+
+## Documentation
+
+- [Development and verification](DEVELOPMENT.md)
+- [Release history](CHANGELOG.md)
+- [V3 workstation roadmap](docs/plans/v3-roadmap.md)
+- [V4 desktop UI roadmap](docs/plans/v4-gui-ui-roadmap.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+
+## Build and verification
+
+The repository includes a repeatable Windows packaging path. `Verify-Release.bat` runs the tests, compile checks, build, headless EXE smoke test, and package-secret check. Successful builds generate SHA-256 checksums and an SPDX SBOM in `dist/release-metadata/`.
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+cmd /c Verify-Release.bat
+```
+
+The GitHub Actions workflow runs the unit suite and rebuilds the Windows executable from the pinned Python 3.13 dependency lock.
+
+## Project status
+
+Blast From the Ads is a Windows desktop tool for a deliberate, review-first content workflow. Features and safeguards are documented in the changelog and roadmaps; contributions that keep the workflow local, inspectable, and compatible are welcome.
+
+## License
+
+No license has been selected for this repository yet. Do not assume permission to reuse or redistribute the code until a license is added.
