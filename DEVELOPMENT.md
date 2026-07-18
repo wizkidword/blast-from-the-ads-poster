@@ -34,8 +34,14 @@ The tracked `settings.json` preserves the current workstation's caption and
 processed-media locations. Before running the live setup check on another
 machine, update those two values in the Settings tab (or leave them blank for
 the local `captions/` and `!processed/` folders). The configured drive must be
-mounted and writable; strict runtime settings validation is scheduled for
-WP-03.
+mounted and writable. Each operation builds one validated directory context
+from `settings.json`; it rejects missing, file-valued, overlapping, nested, or
+non-writable managed folders before it moves or creates media.
+
+Saving settings validates the selected folders before writing the new values.
+The desktop app uses the resulting context immediately, so no restart is
+needed for processing, status, review, recovery, or export to use the new
+caption and processed-media locations.
 
 ## Local document safety
 

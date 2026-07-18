@@ -12,7 +12,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from atomic_io import CorruptJsonError, UnknownSchemaVersionError  # noqa: E402
+from atomic_io import CorruptJsonError, InvalidSchemaError, UnknownSchemaVersionError  # noqa: E402
 from settings_store import SETTINGS_SCHEMA_VERSION, AppSettings, load_settings, resolve_configured_dir, save_settings  # noqa: E402
 
 
@@ -74,6 +74,20 @@ class SettingsStoreTests(unittest.TestCase):
 
             settings_path.write_text(json.dumps({"schema_version": 999}), encoding="utf-8")
             with self.assertRaises(UnknownSchemaVersionError):
+                load_settings(settings_path)
+
+    def test_load_settings_rejects_boolean_and_numeric_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+            settings_path.write_text(
+                json.dumps({"allow_generic_fallback_captions": "false"}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(InvalidSchemaError, "true or false"):
+                load_settings(settings_path)
+
+            settings_path.write_text(json.dumps({"logs_retention_days": "90"}), encoding="utf-8")
+            with self.assertRaisesRegex(InvalidSchemaError, "positive integer"):
                 load_settings(settings_path)
 
     def test_resolve_configured_dir_supports_default_relative_and_absolute_paths(self) -> None:

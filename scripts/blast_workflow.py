@@ -7,9 +7,14 @@ import shutil
 import sys
 
 try:
-    from process_inbox_social import BASE_DIR, CAPTIONS_DIR, PROCESSED_DIR, ensure_dirs, get_openai_model, has_failed_results, load_env, run_inbox_processing
+    from process_inbox_social import get_openai_model, has_failed_results, load_env, run_inbox_processing
 except ImportError:
-    from scripts.process_inbox_social import BASE_DIR, CAPTIONS_DIR, PROCESSED_DIR, ensure_dirs, get_openai_model, has_failed_results, load_env, run_inbox_processing
+    from scripts.process_inbox_social import get_openai_model, has_failed_results, load_env, run_inbox_processing
+
+try:
+    from app_context import AppContext, build_app_context, prepare_app_context
+except ImportError:
+    from scripts.app_context import AppContext, build_app_context, prepare_app_context
 
 try:
     from app_metadata import build_version_label
@@ -29,9 +34,14 @@ def configure_standard_streams() -> None:
             reconfigure(errors="replace")
 
 
-def setup_check() -> int:
+def setup_check(context: AppContext | None = None) -> int:
     load_env()
-    ensure_dirs()
+    try:
+        active_context = context or build_app_context()
+        prepare_app_context(active_context)
+    except Exception as exc:
+        print(f"Configuration error: {exc}")
+        return 1
 
     checks: list[tuple[str, bool, str]] = []
     checks.append(("OPENAI_API_KEY configured", bool(os.environ.get("OPENAI_API_KEY")), "Add it to .env"))
@@ -45,8 +55,8 @@ def setup_check() -> int:
     except ImportError:
         requests_ok = False
     checks.append(("Python package 'requests'", requests_ok, "Run pip install -r requirements.txt"))
-    checks.append(("Project folders ready", (BASE_DIR / "inbox").exists(), "Run the launcher to create folders"))
-    checks.append(("Outputs folder ready", (BASE_DIR / "outputs").exists(), "Run the launcher to create folders"))
+    checks.append(("Project folders ready", active_context.inbox_dir.exists(), "Fix the reported directory configuration"))
+    checks.append(("Outputs folder ready", active_context.outputs_dir.exists(), "Fix the reported directory configuration"))
 
     print(f"\n{build_version_label()} Setup Check\n")
     failures = 0
@@ -57,9 +67,9 @@ def setup_check() -> int:
             failures += 1
             print(f"         {help_text}")
 
-    print(f"\nProject folder: {BASE_DIR}")
-    print(f"Caption exports: {CAPTIONS_DIR}")
-    print(f"Processed media: {PROCESSED_DIR}")
+    print(f"\nProject folder: {active_context.project_dir}")
+    print(f"Caption exports: {active_context.captions_dir}")
+    print(f"Processed media: {active_context.processed_dir}")
     print(f"OpenAI model: {get_openai_model()}")
     print(f"Publish providers: {', '.join(list_provider_names()) or 'None'}")
     return 1 if failures else 0
@@ -83,7 +93,12 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "inbox":
-        summary = run_inbox_processing(limit=args.limit, dry_run=args.dry_run)
+        try:
+            context = build_app_context()
+            summary = run_inbox_processing(limit=args.limit, dry_run=args.dry_run, context=context)
+        except Exception as exc:
+            print(f"Configuration error: {exc}")
+            return 1
         return 1 if has_failed_results(summary) else 0
 
     if args.command == "setup":

@@ -40,6 +40,11 @@ except ImportError:
     from scripts.app_paths import get_project_root
 
 try:
+    from app_context import AppContext, build_app_context, prepare_app_context
+except ImportError:
+    from scripts.app_context import AppContext, build_app_context, prepare_app_context
+
+try:
     from app_metadata import build_version_label
 except ImportError:
     from scripts.app_metadata import build_version_label
@@ -95,9 +100,9 @@ except ImportError:
     from scripts.review_queue import bulk_update_status, format_review_preview, query_review_items
 
 try:
-    from settings_store import load_settings, resolve_configured_dir, save_settings
+    from settings_store import save_settings
 except ImportError:
-    from scripts.settings_store import load_settings, resolve_configured_dir, save_settings
+    from scripts.settings_store import save_settings
 
 try:
     from publishing import PublishStatus, list_provider_names, load_manifest, normalize_hashtag_list, save_manifest, update_manifest_review
@@ -150,19 +155,18 @@ LOGS_DIR = BASE_DIR / "logs"
 EXPORTS_DIR = BASE_DIR / "exports"
 
 
-def configure_output_dirs_from_settings() -> None:
-    global CAPTIONS_DIR, PROCESSED_DIR
-    settings = load_settings(SETTINGS_PATH)
-    CAPTIONS_DIR = resolve_configured_dir(BASE_DIR, settings.captions_dir, "captions")
-    PROCESSED_DIR = resolve_configured_dir(BASE_DIR, settings.processed_dir, "!processed")
+def get_runtime_context() -> AppContext:
+    return build_app_context(BASE_DIR, settings_path=SETTINGS_PATH)
 
 
-configure_output_dirs_from_settings()
+def configure_output_dirs_from_settings() -> AppContext:
+    """Deprecated compatibility helper; operations use SocialBatchApp.context."""
+
+    return get_runtime_context()
 
 
-def ensure_project_dirs() -> None:
-    for directory in (INBOX_DIR, CAPTIONS_DIR, PROCESSED_DIR, OUTPUTS_DIR, LOGS_DIR, EXPORTS_DIR, BASE_DIR / "temp"):
-        directory.mkdir(parents=True, exist_ok=True)
+def ensure_project_dirs(context: AppContext | None = None) -> AppContext:
+    return prepare_app_context(context or get_runtime_context())
 
 
 class QueueWriter:
@@ -188,6 +192,7 @@ class QueueWriter:
 class SocialBatchApp:
     def __init__(self, root: Tk) -> None:
         self.root = root
+        self.context = get_runtime_context()
         self.root.title("Blast From the Ads")
         self.root.geometry("1320x900")
         self.root.minsize(1120, 760)
@@ -285,17 +290,17 @@ class SocialBatchApp:
 
         open_row = Frame(process_tab, padx=0, pady=4, bg=APP_BACKGROUND)
         open_row.pack(fill="x")
-        self.open_inbox_button = Button(open_row, text="Open Inbox", width=12, command=lambda: self.open_folder(INBOX_DIR))
+        self.open_inbox_button = Button(open_row, text="Open Inbox", width=12, command=lambda: self.open_folder(self.context.inbox_dir))
         self.open_inbox_button.pack(side=LEFT, padx=(0, 8))
-        self.open_captions_button = Button(open_row, text="Open Captions", width=12, command=lambda: self.open_folder(CAPTIONS_DIR))
+        self.open_captions_button = Button(open_row, text="Open Captions", width=12, command=lambda: self.open_folder(self.context.captions_dir))
         self.open_captions_button.pack(side=LEFT, padx=(0, 8))
-        self.open_processed_button = Button(open_row, text="Open Processed", width=14, command=lambda: self.open_folder(PROCESSED_DIR))
+        self.open_processed_button = Button(open_row, text="Open Processed", width=14, command=lambda: self.open_folder(self.context.processed_dir))
         self.open_processed_button.pack(side=LEFT, padx=(0, 8))
-        self.open_outputs_button = Button(open_row, text="Open Outputs", width=12, command=lambda: self.open_folder(OUTPUTS_DIR))
+        self.open_outputs_button = Button(open_row, text="Open Outputs", width=12, command=lambda: self.open_folder(self.context.outputs_dir))
         self.open_outputs_button.pack(side=LEFT, padx=(0, 8))
-        self.open_logs_button = Button(open_row, text="Open Logs", width=10, command=lambda: self.open_folder(LOGS_DIR))
+        self.open_logs_button = Button(open_row, text="Open Logs", width=10, command=lambda: self.open_folder(self.context.logs_dir))
         self.open_logs_button.pack(side=LEFT, padx=(0, 8))
-        self.open_exports_button = Button(open_row, text="Open Exports", width=12, command=lambda: self.open_folder(EXPORTS_DIR))
+        self.open_exports_button = Button(open_row, text="Open Exports", width=12, command=lambda: self.open_folder(self.context.exports_dir))
         self.open_exports_button.pack(side=LEFT, padx=(0, 8))
 
         run_frame = Frame(recovery_tab, padx=0, pady=0, bg=APP_BACKGROUND)
@@ -431,7 +436,8 @@ class SocialBatchApp:
             self.log("WARNING: OPENAI_API_KEY is not configured yet. Add it to .env before processing.")
 
     def _build_status_cards(self) -> None:
-        snapshot = build_status_snapshot(INBOX_DIR, CAPTIONS_DIR, PROCESSED_DIR, OUTPUTS_DIR)
+        context = self.context
+        snapshot = build_status_snapshot(context.inbox_dir, context.captions_dir, context.processed_dir, context.outputs_dir)
         for card in build_status_card_specs(snapshot):
             value_var = StringVar(value=card.value)
             self.status_card_vars[card.key] = value_var
@@ -501,15 +507,16 @@ class SocialBatchApp:
         self.log_text.see(END)
 
     def refresh_status(self) -> None:
-        snapshot = build_status_snapshot(INBOX_DIR, CAPTIONS_DIR, PROCESSED_DIR, OUTPUTS_DIR)
+        context = self.context
+        snapshot = build_status_snapshot(context.inbox_dir, context.captions_dir, context.processed_dir, context.outputs_dir)
         self.status_var.set(format_status_line(snapshot))
         for card in build_status_card_specs(snapshot):
             if card.key in self.status_card_vars:
                 self.status_card_vars[card.key].set(card.value)
-        self.run_history_var.set(format_run_history(list_recent_inbox_runs(LOGS_DIR, limit=3)))
+        self.run_history_var.set(format_run_history(list_recent_inbox_runs(context.logs_dir, limit=3)))
 
     def refresh_run_history(self) -> None:
-        self.run_summaries = list_recent_inbox_runs(LOGS_DIR, limit=8)
+        self.run_summaries = list_recent_inbox_runs(self.context.logs_dir, limit=8)
         self.run_listbox.delete(0, END)
         for index, summary in enumerate(self.run_summaries):
             self.run_listbox.insert(END, format_run_history([summary]).replace("Latest Run", f"Run {summary.run_id}") if index == 0 else f"Run {summary.run_id}: {summary.status.upper()} | {summary.processed_count} processed | {summary.failed_count} failed | {summary.media_count} media")
@@ -526,7 +533,7 @@ class SocialBatchApp:
         self.run_history_var.set(format_run_history(self.run_summaries[:3]))
 
     def refresh_recovery_queue(self) -> None:
-        self.recovery_queue = build_recovery_queue(LOGS_DIR, INBOX_DIR)
+        self.recovery_queue = build_recovery_queue(self.context.logs_dir, self.context.inbox_dir)
         self.recovery_status_var.set(
             f"Recovery Queue: {self.recovery_queue.available_count} available, {self.recovery_queue.stale_count} stale"
         )
@@ -551,12 +558,12 @@ class SocialBatchApp:
         self.run_details_text.configure(state="disabled")
 
     def refresh_review_queue(self, select_path: Path | None = None) -> None:
-        settings = load_settings(SETTINGS_PATH)
+        context = self.context
         self.review_items = query_review_items(
-            OUTPUTS_DIR,
+            context.outputs_dir,
             status_filter=self.review_filter_var.get(),
             search_text=self.review_search_var.get(),
-            stale_days=settings.stale_draft_days,
+            stale_days=context.settings.stale_draft_days,
         )
         self.review_listbox.delete(0, END)
         for item in self.review_items:
@@ -654,7 +661,7 @@ class SocialBatchApp:
         if not self.selected_run_log_path:
             messagebox.showinfo("No run selected", "Choose a run from the recovery list first.")
             return
-        plan = collect_failed_run_retry_plan(self.selected_run_log_path, INBOX_DIR)
+        plan = collect_failed_run_retry_plan(self.selected_run_log_path, self.context.inbox_dir)
         if not plan.retry_files:
             missing = "\n".join(plan.missing_files) if plan.missing_files else "No failed files were listed."
             messagebox.showinfo("Nothing to retry", f"No failed files from this run are currently in inbox.\n\nMissing:\n{missing}")
@@ -693,12 +700,13 @@ class SocialBatchApp:
         if not confirmed:
             return
         try:
+            context = self.context
             result = requeue_output_workspace(
                 self.selected_manifest_path.parent,
-                INBOX_DIR,
-                PROCESSED_DIR,
-                BASE_DIR,
-                captions_dir=CAPTIONS_DIR,
+                context.inbox_dir,
+                context.processed_dir,
+                context.project_dir,
+                captions_dir=context.captions_dir,
             )
         except Exception as exc:
             messagebox.showerror("Requeue failed", f"Could not requeue selected post:\n{exc}")
@@ -712,7 +720,11 @@ class SocialBatchApp:
             messagebox.showinfo("No selection", "Choose a post from the review queue first.")
             return
         try:
-            result = create_posting_pack(self.selected_manifest_path, EXPORTS_DIR, captions_root=CAPTIONS_DIR)
+            result = create_posting_pack(
+                self.selected_manifest_path,
+                self.context.exports_dir,
+                captions_root=self.context.captions_dir,
+            )
         except Exception as exc:
             messagebox.showerror("Export failed", f"Could not create posting pack:\n{exc}")
             return
@@ -730,19 +742,19 @@ class SocialBatchApp:
             [item.manifest_path for item in self.review_items],
             PublishStatus.READY.value,
             "Bulk marked ready in review queue.",
-            captions_root=CAPTIONS_DIR,
+            captions_root=self.context.captions_dir,
         )
         self.log(f"Bulk marked {count} visible post(s) ready.")
         self.refresh_review_queue(select_path=self.selected_manifest_path)
 
     def cleanup_safe_artifacts(self) -> None:
-        settings = load_settings(SETTINGS_PATH)
+        context = self.context
         cleanup_plan = plan_cleanup(
-            BASE_DIR,
+            context.project_dir,
             CleanupSettings(
-                logs_retention_days=settings.logs_retention_days,
-                exports_retention_days=settings.posting_pack_retention_days,
-                orphan_outputs_retention_days=settings.orphan_output_retention_days,
+                logs_retention_days=context.settings.logs_retention_days,
+                exports_retention_days=context.settings.posting_pack_retention_days,
+                orphan_outputs_retention_days=context.settings.orphan_output_retention_days,
             ),
         )
         preview = format_cleanup_plan(cleanup_plan)
@@ -762,7 +774,12 @@ class SocialBatchApp:
         self.refresh_review_queue(select_path=self.selected_manifest_path)
 
     def load_settings_tab(self) -> None:
-        settings = load_settings(SETTINGS_PATH)
+        try:
+            self.context = get_runtime_context()
+        except Exception as exc:
+            self.settings_status_var.set(f"Settings error: {exc}")
+            return
+        settings = self.context.settings
         state = build_settings_form_state(settings)
         self.settings_openai_model_var.set(state.openai_model)
         self.settings_allow_fallback_var.set(state.allow_generic_fallback_captions)
@@ -776,7 +793,7 @@ class SocialBatchApp:
         self.settings_processed_dir_var.set(state.processed_dir)
         load_env()
         self.settings_env_status_var.set("OpenAI API key: configured in .env" if get_openai_api_key() else "OpenAI API key: missing from .env")
-        self.settings_status_var.set(f"Loaded settings from {SETTINGS_PATH}")
+        self.settings_status_var.set(f"Loaded settings from {self.context.settings_path}")
 
     def save_settings_tab(self) -> None:
         state = SettingsFormState(
@@ -793,13 +810,14 @@ class SocialBatchApp:
         )
         try:
             settings = parse_settings_form_state(state)
-            save_settings(SETTINGS_PATH, settings)
-            configure_output_dirs_from_settings()
-            ensure_project_dirs()
+            candidate_context = build_app_context(BASE_DIR, settings_path=SETTINGS_PATH, settings=settings)
+            prepare_app_context(candidate_context)
+            save_settings(candidate_context.settings_path, settings)
+            self.context = candidate_context
         except Exception as exc:
             messagebox.showerror("Settings error", str(exc))
             return
-        self.settings_status_var.set(f"Saved settings to {SETTINGS_PATH}")
+        self.settings_status_var.set(f"Saved settings to {self.context.settings_path}; the next operation uses these folders.")
         self.log("Saved non-secret settings.")
         self.refresh_status()
         self.refresh_review_queue(select_path=self.selected_manifest_path)
@@ -840,7 +858,7 @@ class SocialBatchApp:
         )
 
         try:
-            save_manifest(self.selected_manifest_path, updated_manifest, captions_root=CAPTIONS_DIR)
+            save_manifest(self.selected_manifest_path, updated_manifest, captions_root=self.context.captions_dir)
         except Exception as exc:
             messagebox.showerror("Save failed", f"Could not save review changes:\n{exc}")
             return
@@ -852,7 +870,7 @@ class SocialBatchApp:
         self.refresh_review_queue(select_path=self.selected_manifest_path)
 
     def add_files_to_inbox(self) -> None:
-        ensure_project_dirs()
+        context = ensure_project_dirs(self.context)
         selected = filedialog.askopenfilenames(
             title="Choose files for the inbox",
             filetypes=[
@@ -871,8 +889,8 @@ class SocialBatchApp:
                 skipped += 1
                 continue
             try:
-                destination = self._unique_destination(resolve_output_under(INBOX_DIR, require_plain_filename(source.name)))
-                destination = resolve_output_under(INBOX_DIR, destination)
+                destination = self._unique_destination(resolve_output_under(context.inbox_dir, require_plain_filename(source.name)))
+                destination = resolve_output_under(context.inbox_dir, destination)
             except ValueError:
                 skipped += 1
                 continue
@@ -897,8 +915,8 @@ class SocialBatchApp:
         self._run_workflow("setup")
 
     def requeue_processed_files(self) -> None:
-        ensure_project_dirs()
-        plan = collect_requeue_plan(OUTPUTS_DIR, PROCESSED_DIR)
+        context = ensure_project_dirs(self.context)
+        plan = collect_requeue_plan(context.outputs_dir, context.processed_dir)
         output_folders = plan.output_folders
         processed_files = plan.processed_files
         if not output_folders and not processed_files:
@@ -912,7 +930,13 @@ class SocialBatchApp:
         if not confirmed:
             return
 
-        result = execute_requeue_plan(plan, INBOX_DIR, CAPTIONS_DIR, BASE_DIR, processed_dir=PROCESSED_DIR)
+        result = execute_requeue_plan(
+            plan,
+            context.inbox_dir,
+            context.captions_dir,
+            context.project_dir,
+            processed_dir=context.processed_dir,
+        )
 
         self.refresh_status()
         self.refresh_review_queue()
@@ -941,7 +965,7 @@ class SocialBatchApp:
         thread.start()
 
     def _worker(self, action: str, limit: int | None, dry_run: bool, target_files: list[Path] | None = None) -> None:
-        ensure_project_dirs()
+        context = ensure_project_dirs(self.context)
         writer = QueueWriter(self.log_queue)
         exit_code = 0
         try:
@@ -951,8 +975,8 @@ class SocialBatchApp:
                     limit=limit,
                     dry_run=dry_run,
                     target_files=target_files,
-                    setup_check_func=setup_check,
-                    run_inbox_processing_func=run_inbox_processing,
+                    setup_check_func=lambda: setup_check(context),
+                    run_inbox_processing_func=lambda **kwargs: run_inbox_processing(**kwargs, context=context),
                     has_failed_results_func=has_failed_results,
                 )
         except Exception as exc:
@@ -1015,7 +1039,7 @@ class SocialBatchApp:
             button.configure(state=state)
 
     def open_folder(self, path: Path) -> None:
-        ensure_project_dirs()
+        ensure_project_dirs(self.context)
         path.mkdir(parents=True, exist_ok=True)
         os.startfile(path)  # type: ignore[attr-defined]
 
@@ -1027,7 +1051,7 @@ class SocialBatchApp:
 
 
 def main() -> None:
-    ensure_project_dirs()
+    ensure_project_dirs(get_runtime_context())
     root = Tk()
     SocialBatchApp(root)
     root.mainloop()

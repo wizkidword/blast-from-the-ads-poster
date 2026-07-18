@@ -250,7 +250,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
             retry.write_bytes(b"retry")
             other.write_bytes(b"other")
 
-            def fake_process(path: Path, dry_run: bool = False) -> dict:
+            def fake_process(path: Path, dry_run: bool = False, **_kwargs) -> dict:
                 return {"type": "video", "file": path.name, "status": "processed"}
 
             with (
@@ -312,7 +312,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
                 "brand": "Toys",
             }
 
-            def fake_move(file_path: Path, destination: Path, dry_run: bool = False) -> Path:
+            def fake_move(file_path: Path, destination: Path, dry_run: bool = False, **_kwargs) -> Path:
                 if file_path == first:
                     destination.write_bytes(b"processed-first")
                     file_path.unlink()
@@ -361,12 +361,12 @@ class ProcessInboxSocialTests(unittest.TestCase):
                 "brand": "Toys",
             }
 
-            def fake_move(file_path: Path, destination: Path, dry_run: bool = False) -> Path:
+            def fake_move(file_path: Path, destination: Path, dry_run: bool = False, **_kwargs) -> Path:
                 destination.write_bytes(file_path.read_bytes())
                 file_path.unlink()
                 return destination
 
-            def fake_video(image_paths: list[Path], destination: Path, dry_run: bool = False) -> Path:
+            def fake_video(image_paths: list[Path], destination: Path, dry_run: bool = False, **_kwargs) -> Path:
                 self.assertEqual([path.name for path in image_paths], ["ad-one.jpg", "ad-two.jpg"])
                 destination.write_bytes(b"carousel-video")
                 return destination
@@ -423,7 +423,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
                 "brand": "Toys",
             }
 
-            def fake_move(file_path: Path, destination: Path, dry_run: bool = False) -> Path:
+            def fake_move(file_path: Path, destination: Path, dry_run: bool = False, **_kwargs) -> Path:
                 destination.write_bytes(file_path.read_bytes())
                 file_path.unlink()
                 return destination
@@ -475,7 +475,7 @@ class ProcessInboxSocialTests(unittest.TestCase):
                 "brand": "Arcade",
             }
 
-            def fake_move(_file_path: Path, _destination: Path, dry_run: bool = False) -> Path:
+            def fake_move(_file_path: Path, _destination: Path, dry_run: bool = False, **_kwargs) -> Path:
                 processed_media.write_bytes(b"processed-video")
                 return processed_media
 
