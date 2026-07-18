@@ -1,0 +1,30 @@
+{
+  "schema_version": 4,
+  "openai_model": "gpt-5.4-nano",
+  "ai_analysis_enabled": true,
+  "allow_generic_fallback_captions": false,
+  "default_providers": [
+    "manual_export"
+  ],
+  "logs_retention_days": 90,
+  "posting_pack_retention_days": 30,
+  "orphan_output_retention_days": 14,
+  "stale_draft_days": 30,
+  "preferred_platforms": [
+    "manual_export",
+    "instagram",
+    "facebook"
+  ],
+  "captions_dir": "",
+  "processed_dir": "",
+  "max_media_file_bytes": 1000000000,
+  "max_image_pixels": 40000000,
+  "max_image_dimension": 10000,
+  "max_video_duration_seconds": 900,
+  "max_carousel_images": 20,
+  "max_analysis_payload_bytes": 100000000,
+  "max_analysis_images": 8,
+  "max_analysis_image_dimension": 1600,
+  "max_analysis_request_bytes": 12000000,
+  "max_analysis_video_frames": 8
+}

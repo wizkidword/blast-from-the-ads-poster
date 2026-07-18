@@ -1,12 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
+import sys
+
+
+PROJECT_ROOT = Path(SPECPATH).resolve()
+SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from app_metadata import PACKAGE_HIDDEN_IMPORTS
 
 
 a = Analysis(
-    ['scripts\\social_batch_app.py'],
-    pathex=['C:\\Users\\jrock\\Documents\\CODERSCORNER\\CODEX\\blast-from-the-ads-poster\\scripts'],
+    [str(SCRIPTS_DIR / "social_batch_app.py")],
+    pathex=[str(SCRIPTS_DIR)],
     binaries=[],
     datas=[],
-    hiddenimports=['app_metadata', 'app_paths', 'ai_analysis', 'blast_workflow', 'caption_builder', 'cleanup', 'desktop_requeue', 'desktop_review', 'desktop_settings', 'desktop_status', 'desktop_theme', 'desktop_workflow', 'export_packs', 'manifest_service', 'media_artifacts', 'media_rules', 'media_processing', 'platform_profiles', 'process_inbox_social', 'processing_orchestrator', 'processing_transaction', 'publishing', 'requeue', 'recovery_queue', 'recovery_service', 'review_queue', 'run_ledger', 'run_history', 'settings_store', 'thumbnails'],
+    hiddenimports=list(PACKAGE_HIDDEN_IMPORTS),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +31,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='BlastFromTheAds',
+    name="BlastFromTheAds",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
