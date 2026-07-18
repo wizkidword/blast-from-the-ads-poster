@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.3.0 - 2026-07-18
+
+- Posting packs now build in a temporary sibling folder and replace an existing pack only after every file is copied and verified.
+- Each pack includes an integrity manifest with ordered media names, byte sizes, SHA-256 hashes, source-manifest provenance, and platform-profile versions.
+- Failed copies, unsafe or missing media, invalid platforms, hash mismatches, and final-swap failures preserve the last valid pack.
+
 ## 4.2.0 - 2026-07-18
 
 - Added one shared readiness report for Review, Ready transitions, and posting-pack export.
